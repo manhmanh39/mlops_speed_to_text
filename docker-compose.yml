@@ -1,0 +1,65 @@
+version: '3.8'
+
+services:
+  wav2vec2-train:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wav2vec2-vi:latest
+    container_name: wav2vec2-train
+    volumes:
+      - ./data_train_70.6:/app/data/train
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+    tty: true
+    stdin_open: true
+    # Thêm dấu > để Docker nối các dòng dưới thành 1 lệnh
+    command: >
+      python train_wav2vec2.py
+      --extracted_dir /app/data/train
+      --meta_csv /app/data/train/metadata.csv
+      --output_dir /app/models/wav2vec2-finetuned
+      --num_train_epochs 20
+      --learning_rate 1e-5
+    networks:
+      - wav2vec2-net
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  wav2vec2-eval:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wav2vec2-vi:latest
+    container_name: wav2vec2-eval
+    volumes:
+      - ./data_train_70.6:/app/data/train
+      - ./person_name_500:/app/data/eval
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+    # Sửa lại cú pháp > ở đây luôn cho an toàn
+    command: >
+      python eval_wav2vec2.py
+      --wav_dir /app/data/eval
+      --model_dir /app/models/wav2vec2-finetuned
+      --local_weights /app/models/wav2vec2-finetuned/model.safetensors
+      --out_save_dir /app/outputs
+      --run_postprocess
+    networks:
+      - wav2vec2-net
+    depends_on:
+      - wav2vec2-train
+
+networks:
+  wav2vec2-net:
+    driver: bridge
+
+volumes:
+  data:
+  models:
+  outputs:

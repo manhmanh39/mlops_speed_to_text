@@ -1,0 +1,20 @@
+data_train_70.6/
+person_name_500/
+outputs/
+# Thư mục Data
+data_train_70.6/
+person_name_500/
+data/
+
+# Thư mục Model và Output
+models/
+outputs/
+lm/
+
+# Bỏ qua các file âm thanh và weights nếu bị rớt ra ngoài
+*.wav
+*.safetensors
+*.bin
+
+# Bộ nhớ tạm của Python
+__pycache__/
