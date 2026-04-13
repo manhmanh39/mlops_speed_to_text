@@ -11,10 +11,10 @@ from --model_id to instantiate the exact model architecture before
 loading local weights.
 
 Usage example:
-python eval_wav2vec2.py \
-  --wav_dir /content/person_name_500/ \
-  --model_dir /content/wav2vec2-finetuned \
-  --local_weights /content/wav2vec2-finetuned/model.safetensors \
+python eval_wav2vec2.py \\
+  --wav_dir /content/person_name_500/ \\
+  --model_dir /content/wav2vec2-finetuned \\
+  --local_weights /content/wav2vec2-finetuned/model.safetensors \\
   --run_postprocess
 """
 import argparse
@@ -24,7 +24,6 @@ import logging
 import os
 import re
 import uuid
-import zipfile # <--- Thêm thư viện giải nén
 from importlib.machinery import SourceFileLoader
 
 import numpy as np
@@ -67,12 +66,6 @@ try:
     from jiwer import wer
 except Exception:
     wer = None
-
-import urllib.request
-try:
-    from pyctcdecode import build_ctcdecoder
-except Exception:
-    build_ctcdecoder = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -223,7 +216,7 @@ def compare_support_dialect_tone(s1: str, s2: str) -> bool:
 
 
 # ------------------ Transcription ------------------
-def transcribe_wav2vec(audio_path, processor_ref, model_ref, device, decoder=None):
+def transcribe_wav2vec(audio_path, processor_ref, model_ref, device):
     if librosa is None:
         raise RuntimeError("librosa is required for audio loading")
     audio_arr, sr = librosa.load(audio_path, sr=16000)
@@ -231,19 +224,10 @@ def transcribe_wav2vec(audio_path, processor_ref, model_ref, device, decoder=Non
         audio_arr, sampling_rate=sr, return_tensors="pt", padding=True
     )
     input_values = inputs.input_values.to(device)
-    
     with torch.no_grad():
         logits = model_ref(input_values).logits
-        
-    if decoder is not None:
-        logits_np = logits[0].cpu().numpy()
-        # Tăng beam_width lên để nó tìm kiếm kỹ hơn
-        transcription = decoder.decode(logits_np, beam_width=500) 
-        return transcription.strip()
-    else:
-        # Nếu không có KenLM -> Dùng Greedy Search ngốc nghếch
-        pred_ids = torch.argmax(logits, dim=-1)
-        return processor_ref.decode(pred_ids[0]).strip()
+    pred_ids = torch.argmax(logits, dim=-1)
+    return processor_ref.decode(pred_ids[0]).strip()
 
 
 # ------------------ Checkpoint loading helper ------------------
@@ -508,52 +492,6 @@ def evaluate_folder(
     model.eval()
     _save_model_snapshot(model, processor, out_save_dir)
 
-    # --- KHỞI TẠO LANGUAGE MODEL KENLM BẰNG LINK ZIP ---
-    import zipfile
-    decoder = None
-    lm_dir = os.path.join(out_save_dir, "lm")
-    os.makedirs(lm_dir, exist_ok=True)
-    lm_path = os.path.join(lm_dir, "vi_lm_4grams.bin")
-    zip_path = os.path.join(lm_dir, "vi_lm_4grams.bin.zip")
-    
-    if not os.path.exists(lm_path):
-        logger.info("Đang tải file ZIP Từ điển KenLM (Khoảng ~800MB, vui lòng chờ)...")
-        # Link chuẩn có chứa file ZIP trên HuggingFace
-        url = "https://huggingface.co/nguyenvulebinh/wav2vec2-base-vietnamese-250h/resolve/main/vi_lm_4grams.bin.zip"
-        urllib.request.urlretrieve(url, zip_path)
-        
-        logger.info("Tải xong! Đang tiến hành giải nén...")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(lm_dir)
-        os.remove(zip_path) # Xóa file ZIP đi cho nhẹ máy
-        logger.info("Giải nén KenLM hoàn tất!")
-
-    if build_ctcdecoder is not None and os.path.exists(lm_path):
-        logger.info("Đang nạp KenLM Decoder chuẩn (có khoảng trắng)...")
-        vocab_dict = processor.tokenizer.get_vocab()
-        sorted_vocab = sorted(vocab_dict.items(), key=lambda x: x[1])
-        vocab_list = [item[0] for item in sorted_vocab]
-
-        if len(vocab_list) > model.config.vocab_size:
-            vocab_list = vocab_list[:model.config.vocab_size]
-
-        if processor.tokenizer.pad_token in vocab_list:
-            vocab_list[vocab_list.index(processor.tokenizer.pad_token)] = ""
-        
-        # SỬA LẠI THÀNH DẤU CÁCH: Để KenLM nhận diện ranh giới từ
-        word_delim = processor.tokenizer.word_delimiter_token
-        if word_delim in vocab_list:
-            vocab_list[vocab_list.index(word_delim)] = " " 
-
-        decoder = build_ctcdecoder(
-            labels=vocab_list,
-            kenlm_model_path=lm_path,
-            alpha=0.5, # Bây giờ có thể để alpha cao (0.5 - 0.7) vì dữ liệu đã chuẩn
-            beta=1.5,   
-        )
-    else:
-        logger.warning("Không nạp được KenLM. Trở về chấm điểm bình thường!")
-
     # Evaluate WAV files
     csv_out = os.path.join(
         out_save_dir, "transcription_results_wav2vec2.csv"
@@ -580,7 +518,7 @@ def evaluate_folder(
 
             try:
                 pred = transcribe_wav2vec(
-                    denoise_path, processor, model, device, decoder # <--- Truyền decoder vào đây
+                    denoise_path, processor, model, device
                 )
             except Exception as e:
                 logger.exception(
@@ -612,6 +550,7 @@ def evaluate_folder(
 
             # Kiểm tra xem tên chuẩn có xuất hiện trong câu AI nói không
             ok = clean_exp in clean_pred
+
             status = "PASS" if ok else "FAIL"
             print(
                 f"{status} | File: {fname} | "

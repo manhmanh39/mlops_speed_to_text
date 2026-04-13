@@ -76,9 +76,7 @@ def prepare_datasets(
     )
 
     # basic transcript cleaning: remove common punctuation
-    # pattern = r"[\,\?\.\!\-\;\:\"\'\'\"\"\ %\…]"
-    # Bỏ khoảng trắng (dấu cách) ra khỏi danh sách bị xóa
-    pattern = r"[\,\?\.\!\-\;\:\"\'\'\"\"\%\…]"
+    pattern = r"[\,\?\.\!\-\;\:\"\'\'\"\"\ %\…]"
     meta['transcript'] = (
         meta['transcript']
         .str.lower()
@@ -113,7 +111,7 @@ def prepare_datasets(
     # original_len = len(hf_ds)
     # hf_ds = hf_ds.filter(filter_length, num_proc=4)
     # logger.info(f"Đã lọc xong! Số sample: {original_len} -> {len(hf_ds)}")
-    # # ---------------------------------------------
+    # ---------------------------------------------
 
     # split into train/test (10% test)
     dsplits = hf_ds.train_test_split(test_size=0.1, seed=42)
@@ -597,3 +595,4 @@ if __name__ == '__main__':
     main()
 
 # python /content/train_wav2vec2.py
+
