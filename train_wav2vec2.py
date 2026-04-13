@@ -97,22 +97,6 @@ def prepare_datasets(
         'audio_path', Audio(sampling_rate=16_000)
     )
 
-    # --- ĐOẠN CODE MỚI THÊM VÀO ĐỂ LỌC AUDIO ---
-    # logger.info(f"Đang lọc các file audio dài hơn {max_duration} giây...")
-    
-    # def filter_length(example):
-    #     # Lấy mảng dữ liệu âm thanh và tính thời lượng (giây)
-    #     audio_array = example['audio_path']['array']
-    #     sr = example['audio_path']['sampling_rate']
-    #     duration = len(audio_array) / sr
-    #     return duration #<= max_duration
-
-    # # Thực hiện lọc. num_proc=4 giúp chạy đa luồng để lọc nhanh hơn
-    # original_len = len(hf_ds)
-    # hf_ds = hf_ds.filter(filter_length, num_proc=4)
-    # logger.info(f"Đã lọc xong! Số sample: {original_len} -> {len(hf_ds)}")
-    # ---------------------------------------------
-
     # split into train/test (10% test)
     dsplits = hf_ds.train_test_split(test_size=0.1, seed=42)
     train_ds = dsplits['train']

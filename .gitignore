@@ -13,6 +13,7 @@ lm/
 
 # Bỏ qua các file âm thanh và weights nếu bị rớt ra ngoài
 *.wav
+.env
 *.safetensors
 *.bin
 
