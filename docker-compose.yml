@@ -11,6 +11,9 @@ services:
       - ./data_train_70.6:/app/data/train
       - ./models:/app/models
       - ./outputs:/app/outputs
+    environment:
+      - WANDB_API_KEY=${WANDB_API_KEY}
+      - HF_TOKEN=${HF_TOKEN}
     tty: true
     stdin_open: true
     # Thêm dấu > để Docker nối các dòng dưới thành 1 lệnh
