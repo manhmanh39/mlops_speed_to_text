@@ -1,0 +1,6 @@
+outs:
+- md5: 22add3edf2f8314a55f74bec6dc19815.dir
+  size: 282621793
+  nfiles: 2803
+  hash: md5
+  path: data_train_70.6

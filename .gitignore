@@ -19,3 +19,5 @@ lm/
 
 # Bộ nhớ tạm của Python
 __pycache__/
+/data_train_70.6
+/person_name_500
