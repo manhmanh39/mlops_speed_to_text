@@ -1,9 +1,16 @@
 import os
-import torch
 import shutil
-from fastapi import FastAPI, UploadFile, File, HTTPException
+
+import torch
+from fastapi import FastAPI, HTTPException, UploadFile
 from pydantic import BaseModel
-from eval_wav2vec2 import _load_model_and_processor, _load_local_weights, transcribe_wav2vec, vietnamese_number_converter
+
+from eval_wav2vec2 import (
+    _load_local_weights,
+    _load_model_and_processor,
+    transcribe_wav2vec,
+    vietnamese_number_converter,
+)
 
 app = FastAPI(title="Vietnamese Name ASR API", description="MLOps Final Project - Group 7")
 
@@ -35,7 +42,7 @@ class PredictionResponse(BaseModel):
     post_processed: str
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict(file: UploadFile = File(...)):
+async def predict(file: UploadFile):
     if not file.filename.endswith(".wav"):
         raise HTTPException(status_code=400, detail="Only .wav files are supported")
 
@@ -47,7 +54,7 @@ async def predict(file: UploadFile = File(...)):
     try:
         # 1. Transcribe (Dùng hàm core của bạn)
         raw_text = transcribe_wav2vec(temp_path, processor, model, DEVICE)
-        
+
         # 2. Post-process (Dùng hàm xử lý số của bạn)
         clean_text = vietnamese_number_converter(raw_text)
 
@@ -57,7 +64,7 @@ async def predict(file: UploadFile = File(...)):
             "post_processed": clean_text
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)

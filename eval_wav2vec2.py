@@ -206,11 +206,11 @@ def compare_support_dialect_tone(s1: str, s2: str) -> bool:
     # 1. Bỏ dấu tiếng Việt
     s1 = convert_vietnamese_diacritics(s1.lower())
     s2 = convert_vietnamese_diacritics(s2.lower())
-    
+
     # 2. Xóa SẠCH khoảng trắng, dấu gạch dưới và ký tự đặc biệt
     s1_clean = re.sub(r"[\W_]", "", s1)
     s2_clean = re.sub(r"[\W_]", "", s2)
-    
+
     # 3. So sánh chuỗi con (Tên chuẩn có nằm trong câu AI nghe được không?)
     return s2_clean in s1_clean
 
@@ -670,4 +670,3 @@ if __name__ == "__main__":
         run_postprocess=args.run_postprocess,
         device=args.device,
     )
-    
