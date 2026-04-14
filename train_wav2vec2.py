@@ -103,6 +103,7 @@ def prepare_datasets(
     eval_ds = dsplits['test']
     return train_ds, eval_ds
 
+
 # Optional model loader: downloads model_handling.py if present
 def load_model_and_processor(
     model_id: str = MODEL_ID_DEFAULT,
@@ -281,8 +282,8 @@ def build_training_args(
         logging_steps=200,
         eval_strategy="steps",
         save_total_limit=2,
-        gradient_checkpointing = True,
-        fp16=True,# if torch.cuda.is_available() else False,
+        gradient_checkpointing=True,
+        fp16=True,  # if torch.cuda.is_available() else False,
         dataloader_num_workers=0,
         # group_by_length = True,
         load_best_model_at_end=True,
@@ -579,4 +580,3 @@ if __name__ == '__main__':
     main()
 
 # python /content/train_wav2vec2.py
-
