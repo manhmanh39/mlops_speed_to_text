@@ -13,7 +13,9 @@ services:
       - ./outputs:/app/outputs
     environment:
       - WANDB_API_KEY=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
-      - HF_TOKEN=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
+      - WANDB_PROJECT=mlops
+      - WANDB_MODE=online
+      - HF_TOKEN=${HF_TOKEN}
     tty: true
     stdin_open: true
     # Thêm dấu > để Docker nối các dòng dưới thành 1 lệnh

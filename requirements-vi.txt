@@ -21,3 +21,4 @@ fastapi
 uvicorn
 python-multipart
 wandb
+prometheus-fastapi-instrumentator
