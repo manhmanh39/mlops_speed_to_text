@@ -5,17 +5,16 @@ import zipfile
 
 import torch
 from fastapi import FastAPI, HTTPException, UploadFile
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 
 from eval_wav2vec2 import (
     _load_local_weights,
     _load_model_and_processor,
+    build_ctcdecoder,  # <-- IMPORT THÊM DECODER
     transcribe_wav2vec,
     vietnamese_number_converter,
-    build_ctcdecoder # <-- IMPORT THÊM DECODER
 )
-
-from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="Vietnamese Name ASR API", description="MLOps Final Project")
 
@@ -40,12 +39,12 @@ async def load_model():
         _load_local_weights(model, LOCAL_WEIGHTS)
         model.to(DEVICE)
         model.eval()
-        
+
         # --- NẠP KENLM DECODER ---
         lm_dir = "/app/models/lm"
         os.makedirs(lm_dir, exist_ok=True)
         lm_path = os.path.join(lm_dir, "vi_lm_4grams.bin")
-        
+
         # Tải nếu chưa có (nên mount volume để không tải lại mỗi lần Pod restart)
         if not os.path.exists(lm_path):
             print("Downloading KenLM...")
@@ -65,7 +64,7 @@ async def load_model():
             vocab_list[vocab_list.index(processor.tokenizer.pad_token)] = ""
         word_delim = processor.tokenizer.word_delimiter_token
         if word_delim in vocab_list:
-            vocab_list[vocab_list.index(word_delim)] = " " 
+            vocab_list[vocab_list.index(word_delim)] = " "
 
         decoder = build_ctcdecoder(labels=vocab_list, kenlm_model_path=lm_path, alpha=0.5, beta=1.5)
         print(f"--- Model and KenLM loaded successfully on {DEVICE} ---")
@@ -103,14 +102,14 @@ async def predict(file: UploadFile):
             "post_processed": clean_text
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
 @app.get("/health")
 async def health_check():
-    # Sửa lại: Phải check cả decoder (KenLM) vì nó chiếm 800MB, 
+    # Sửa lại: Phải check cả decoder (KenLM) vì nó chiếm 800MB,
     # nếu nó chưa load xong mà K8s đã gửi traffic vào thì sẽ bị lỗi timeout.
     if model is not None and decoder is not None:
         return {"status": "healthy", "device": str(DEVICE)}
