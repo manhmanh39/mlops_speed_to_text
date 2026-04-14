@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wav2vec2-api
+spec:
+  replicas: 2 
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: wav2vec2-asr
+  template:
+    metadata:
+      labels:
+        app: wav2vec2-asr
+    spec:
+      containers:
+      - name: asr-container
+        image: ghcr.io/manhmanh39/mlops_speed_to_text:latest
+        ports:
+        - containerPort: 8000
