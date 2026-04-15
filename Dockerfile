@@ -2,26 +2,26 @@
 # Milestones: Problem definition, dataset selection, success metrics, project plan
 # Data ingestion, exploratory analysis, data versioning (DVC / Git)
 # Baseline model training and evaluation
-# CI pipeline: testing, linting, experiment tracking
-# Deployment setup (API / batch), model registry
+# CI pipeline: testing, linting, experiment tracking (MLflow)
+# Deployment setup (API / batch), model registry (MLflow)
 
 FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-    # Cài đặt thư viện hệ thống để xử lý âm thanh
+# System libraries for audio processing
 RUN apt-get update && apt-get install -y libsndfile1 ffmpeg
 
-# Cài đặt thư viện python còn thiếu
+# Python audio helpers
 RUN pip install librosa soundfile
 
 WORKDIR /app
 
 COPY requirements-vi.txt .
-
 RUN pip install --no-cache-dir -r requirements-vi.txt
 
 COPY train_wav2vec2.py eval_wav2vec2.py ./

@@ -1,0 +1,16 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/468f4587c2d444cba59b15fe088f86e2/artifacts
+deleted_time: 1776249063495
+end_time: 1776177362247
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: deleted
+run_id: 468f4587c2d444cba59b15fe088f86e2
+run_name: merciful-fowl-345
+run_uuid: 468f4587c2d444cba59b15fe088f86e2
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776177223370
+status: 4
+tags: []
+user_id: root

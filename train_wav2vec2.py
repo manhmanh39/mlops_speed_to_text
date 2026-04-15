@@ -1,6 +1,6 @@
 # file: train_wav2vec2.py
 """
-Training script (standalone) with concise comments.
+Training script (standalone) with MLflow experiment tracking.
 Usage example:
 python train_wav2vec2.py --extracted_dir /content/data_train_70.6 \\
     --meta_csv /content/data_train_70.6/metadata.csv \\
@@ -8,7 +8,7 @@ python train_wav2vec2.py --extracted_dir /content/data_train_70.6 \\
     --output_dir wav2vec2-finetuned --mode train
 
 Note: install required packages first (transformers, datasets,
-huggingface_hub, torch, torchaudio, jiwer, safetensors as needed).
+huggingface_hub, torch, torchaudio, jiwer, safetensors, mlflow as needed).
 """
 
 import argparse
@@ -19,6 +19,8 @@ from dataclasses import dataclass
 from importlib.machinery import SourceFileLoader
 from typing import Dict, List, Union
 
+import mlflow
+import mlflow.pytorch
 import numpy as np
 import pandas as pd
 import torch
@@ -41,6 +43,80 @@ EXTRACTED_DIR = "/content/data_train_70.6"
 META_CSV = os.path.join(EXTRACTED_DIR, 'metadata.csv')
 MODEL_ID_DEFAULT = "nguyenvulebinh/wav2vec2-large-vi-vlsp2020"
 OUTPUT_DIR_DEFAULT = "wav2vec2-finetuned"
+
+# MLflow defaults
+MLFLOW_TRACKING_URI_DEFAULT = "http://mlflow:5000"
+MLFLOW_EXPERIMENT_DEFAULT = "wav2vec2-vietnamese"
+
+
+# ─── MLflow helpers ──────────────────────────────────────────────────────────
+
+def setup_mlflow(tracking_uri: str, experiment_name: str):
+    """Configure MLflow tracking server and experiment."""
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+    logger.info(
+        "MLflow configured: uri=%s  experiment=%s",
+        tracking_uri,
+        experiment_name,
+    )
+
+
+def log_dvc_info(meta_csv: str, extracted_dir: str):
+    """Log DVC-tracked dataset info as MLflow tags/params."""
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["dvc", "status", "--json"],
+            capture_output=True, text=True, cwd=extracted_dir
+        )
+        if result.returncode == 0:
+            mlflow.set_tag("dvc.status", result.stdout.strip()[:500])
+    except Exception:
+        pass  # DVC not installed or not a DVC repo
+
+    # Log dataset path for traceability
+    mlflow.log_param("data.meta_csv", meta_csv)
+    mlflow.log_param("data.extracted_dir", extracted_dir)
+
+    # Log row count for quick sanity check
+    try:
+        meta = pd.read_csv(
+            meta_csv, sep='|', header=None, names=['filename', 'transcript']
+        )
+        mlflow.log_param("data.num_rows", len(meta))
+    except Exception:
+        pass
+
+
+# ─── MLflow Trainer callback ─────────────────────────────────────────────────
+
+class MLflowTrainerCallback:
+    """Minimal callback shim: logs Trainer metrics to active MLflow run."""
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if logs is None:
+            return
+        step = state.global_step
+        for key, value in logs.items():
+            if isinstance(value, (int, float)):
+                mlflow.log_metric(key, value, step=step)
+
+
+# ─── Patched Trainer that streams metrics to MLflow ──────────────────────────
+
+class MLflowTrainer(Trainer):
+    """Trainer subclass that logs eval/train metrics to MLflow."""
+
+    def log(self, logs: Dict, start_time=None):
+        super().log(logs)
+        step = self.state.global_step if self.state else 0
+        for key, value in logs.items():
+            if isinstance(value, (int, float)):
+                try:
+                    mlflow.log_metric(key, value, step=step)
+                except Exception:
+                    pass
 
 
 # Optional HF login helper: call login() when token provided
@@ -137,7 +213,6 @@ def load_model_and_processor(
                 model_id, trust_remote_code=trust_remote_code
             )
         else:
-            # fallback to generic AutoModelForCTC
             from transformers import AutoModelForCTC
             model = AutoModelForCTC.from_pretrained(model_id)
     else:
@@ -161,16 +236,13 @@ class DataCollatorCTCWithPadding:
         self,
         features: List[Dict[str, Union[List[int], torch.Tensor]]],
     ) -> Dict[str, torch.Tensor]:
-        # Separate input arrays and label id lists
         inputs = [{"input_values": f["input_values"]} for f in features]
         labels = [f["labels"] for f in features]
 
-        # Pad input_values -> returns tensors for model input
         batch = self.processor.feature_extractor.pad(
             inputs, padding=self.padding, return_tensors="pt"
         )
 
-        # Pad labels; replace pad token ids with -100 for CTC loss
         labels_batch = self.processor.tokenizer.pad(
             {"input_ids": labels},
             padding=self.padding,
@@ -185,38 +257,15 @@ class DataCollatorCTCWithPadding:
         return batch
 
 
-# Simple WER metric collector (kept for completeness)
-class WERMetric:
-    def __init__(self):
-        self._preds: List[str] = []
-        self._refs: List[str] = []
-        self._punct = re.compile(r"[^\w\s]")
-
-    def _norm(self, t: str) -> List[str]:
-        return self._punct.sub('', t.lower()).split()
-
-    def add_batch(self, preds, refs):
-        self._preds.extend(preds)
-        self._refs.extend(refs)
-
-    def compute(self):
-        from jiwer import wer
-        score = wer(self._refs, self._preds)
-        return {"wer": score}
-
-
 # compute_metrics function used by Trainer to compute WER on eval
 def compute_metrics(pred, processor_ref):
     from jiwer import wer
-    # take argmax over logits to get token ids
     pred_ids = np.argmax(pred.predictions, axis=-1)
-    # replace -100 with pad token id for decoding
     label_ids = np.where(
         pred.label_ids != -100,
         pred.label_ids,
         processor_ref.tokenizer.pad_token_id,
     )
-    # decode predictions and labels to strings
     pred_str = processor_ref.batch_decode(
         pred_ids, group_tokens=True, skip_special_tokens=True
     )
@@ -245,9 +294,7 @@ def align_model_and_tokenizer(model, processor):
         try:
             model.resize_token_embeddings(tokenizer_size)
         except Exception as e:
-            logger.warning(
-                "resize_token_embeddings failed: %s", e
-            )
+            logger.warning("resize_token_embeddings failed: %s", e)
         model.config.vocab_size = tokenizer_size
 
     if (
@@ -283,36 +330,32 @@ def build_training_args(
         eval_strategy="steps",
         save_total_limit=2,
         gradient_checkpointing=True,
-        fp16=True,  # if torch.cuda.is_available() else False,
+        fp16=True,
         dataloader_num_workers=0,
-        # group_by_length = True,
         load_best_model_at_end=True,
         metric_for_best_model="wer",
         greater_is_better=False,
-        optim="adamw_bnb_8bit"
+        optim="adamw_bnb_8bit",
+        # Disable built-in W&B / other integrations; we use MLflow directly
+        report_to="none",
     )
 
 
 # preprocessing for a single dataset example
 def prepare_batch(batch, processor_ref):
-    # audio array and sampling rate from datasets' Audio feature
     arr = batch['audio_path']['array']
     sr = batch['audio_path']['sampling_rate']
 
-    # run feature extractor (returns numpy input_values) as float32
     inp = processor_ref.feature_extractor(
         arr, sampling_rate=sr, return_tensors='np'
     ).input_values[0]
     inp = np.asarray(inp, dtype=np.float32)
 
-    # --- CODE MỚI: Ép dấu cách thành ký tự ngắt từ chuẩn của Model ---
     transcript = batch['transcript']
     word_delimiter = processor_ref.tokenizer.word_delimiter_token
-    # Nếu tokenizer dùng ký tự đặc biệt (như '|') để ngắt từ
     if word_delimiter and word_delimiter != " ":
         transcript = transcript.replace(" ", word_delimiter)
 
-    # tokenize transcript into input ids for CTC labels
     lbl = processor_ref.tokenizer(transcript).input_ids
     return {'input_values': inp, 'labels': lbl}
 
@@ -330,126 +373,146 @@ def run_training(
     hf_token: str = None,
     push_to_hub: bool = False,
     repo_id: str = None,
+    mlflow_tracking_uri: str = MLFLOW_TRACKING_URI_DEFAULT,
+    mlflow_experiment: str = MLFLOW_EXPERIMENT_DEFAULT,
 ):
+    # ── MLflow setup ─────────────────────────────────────────────────────────
+    setup_mlflow(mlflow_tracking_uri, mlflow_experiment)
 
-    # prepare train/eval HF datasets
-    train_ds, eval_ds = prepare_datasets(extracted_dir, meta_csv)
+    with mlflow.start_run() as run:
+        logger.info("MLflow run_id: %s", run.info.run_id)
 
-    # load model+processor and pick device
-    model, processor, device = load_model_and_processor(model_id)
-    align_model_and_tokenizer(model, processor)
+        # ── Log DVC data provenance ───────────────────────────────────────────
+        log_dvc_info(meta_csv, extracted_dir)
 
-    # create collator instance for padding batches
-    data_collator = DataCollatorCTCWithPadding(processor=processor)
+        # ── Log all hyper-parameters ──────────────────────────────────────────
+        mlflow.log_params({
+            "model_id": model_id,
+            "per_device_train_batch_size": per_device_train_batch_size,
+            "gradient_accumulation_steps": gradient_accumulation_steps,
+            "effective_batch_size": (
+                per_device_train_batch_size * gradient_accumulation_steps
+            ),
+            "learning_rate": learning_rate,
+            "num_train_epochs": num_train_epochs,
+            "output_dir": output_dir,
+        })
 
-    # map preprocessing function over datasets
-    train_prepped = train_ds.map(
-        lambda b: prepare_batch(b, processor),
-        remove_columns=train_ds.column_names,
-    )
-    eval_prepped = eval_ds.map(
-        lambda b: prepare_batch(b, processor),
-        remove_columns=eval_ds.column_names,
-    )
+        # ── Prepare datasets ──────────────────────────────────────────────────
+        train_ds, eval_ds = prepare_datasets(extracted_dir, meta_csv)
+        mlflow.log_params({
+            "train_size": len(train_ds),
+            "eval_size": len(eval_ds),
+        })
 
-    # training hyperparameters and strategies
-    training_args = build_training_args(
-        output_dir=output_dir,
-        per_device_train_batch_size=per_device_train_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        learning_rate=learning_rate,
-        num_train_epochs=num_train_epochs,
-    )
+        # ── Load model + processor ────────────────────────────────────────────
+        model, processor, device = load_model_and_processor(model_id)
+        align_model_and_tokenizer(model, processor)
+        mlflow.set_tag("device", device)
 
-    # instantiate Trainer with datasets and compute_metrics wrapper
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_prepped,
-        eval_dataset=eval_prepped,
-        data_collator=data_collator,
-        # processing_class=processor,
-        compute_metrics=lambda pred: compute_metrics(pred, processor),
-    )
+        data_collator = DataCollatorCTCWithPadding(processor=processor)
 
-    # start training (blocking call)
-    trainer.train()
-
-    # evaluate after training
-    eval_results = trainer.evaluate()
-
-    # ensure output directory exists and save model + processor
-    os.makedirs(output_dir, exist_ok=True)
-
-    try:
-        trainer.save_model(output_dir)
-        processor.save_pretrained(output_dir)
-        logger.info("Saved model and processor to %s", output_dir)
-    except Exception as e:
-        logger.exception(
-            "Failed to save model/processor with save_pretrained: %s",
-            e,
+        train_prepped = train_ds.map(
+            lambda b: prepare_batch(b, processor),
+            remove_columns=train_ds.column_names,
+        )
+        eval_prepped = eval_ds.map(
+            lambda b: prepare_batch(b, processor),
+            remove_columns=eval_ds.column_names,
         )
 
-    # optionally save safetensors for smaller/binary checkpoint
-    try:
-        if save_safetensors is not None:
-            sd = {k: v.cpu() for k, v in model.state_dict().items()}
-            safetensors_path = os.path.join(
-                output_dir, "model.safetensors"
-            )
-            save_safetensors(sd, safetensors_path)
-            logger.info(
-                "Saved safetensors to %s", safetensors_path
-            )
-        else:
-            logger.warning(
-                "safetensors not installed; "
-                "skipping model.safetensors save."
-            )
-    except Exception as e:
-        logger.exception(
-            "Failed to write safetensors: %s", e
+        training_args = build_training_args(
+            output_dir=output_dir,
+            per_device_train_batch_size=per_device_train_batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            learning_rate=learning_rate,
+            num_train_epochs=num_train_epochs,
         )
 
-    # push model to Hugging Face Hub if requested
-    if push_to_hub and repo_id:
+        # ── Use patched MLflowTrainer ─────────────────────────────────────────
+        trainer = MLflowTrainer(
+            model=model,
+            args=training_args,
+            train_dataset=train_prepped,
+            eval_dataset=eval_prepped,
+            data_collator=data_collator,
+            compute_metrics=lambda pred: compute_metrics(pred, processor),
+        )
+
+        trainer.train()
+        eval_results = trainer.evaluate()
+
+        # ── Log final eval metrics ────────────────────────────────────────────
+        for key, value in eval_results.items():
+            if isinstance(value, (int, float)):
+                mlflow.log_metric(f"final_{key}", value)
+
+        # ── Save model artifacts ──────────────────────────────────────────────
+        os.makedirs(output_dir, exist_ok=True)
+
         try:
-            logger.info(
-                "Pushing model to Hugging Face Hub: %s", repo_id
-            )
-            trainer.push_to_hub(repo_id=repo_id, private=False)
-            processor.push_to_hub(repo_id=repo_id, private=False)
-            logger.info(
-                "Successfully pushed model and processor to Hub: %s",
-                repo_id,
-            )
+            trainer.save_model(output_dir)
+            processor.save_pretrained(output_dir)
+            logger.info("Saved model and processor to %s", output_dir)
         except Exception as e:
             logger.exception(
-                "Failed to push model to Hub: %s", e
-            )
-    else:
-        if push_to_hub:
-            logger.warning(
-                "push_to_hub enabled but repo_id not provided; "
-                "skipping Hub push."
+                "Failed to save model/processor with save_pretrained: %s", e
             )
 
-    # log final eval WER if available
-    try:
-        logger.info(
-            f"Final eval WER: {eval_results['eval_wer']:.4f}"
-        )
-    except Exception:
-        logger.info(
-            "Evaluation finished; check trainer.evaluate() results."
-        )
+        # Save safetensors checkpoint
+        try:
+            if save_safetensors is not None:
+                sd = {k: v.cpu() for k, v in model.state_dict().items()}
+                safetensors_path = os.path.join(
+                    output_dir, "model.safetensors"
+                )
+                save_safetensors(sd, safetensors_path)
+                logger.info("Saved safetensors to %s", safetensors_path)
+            else:
+                logger.warning(
+                    "safetensors not installed; skipping model.safetensors save."
+                )
+        except Exception as e:
+            logger.exception("Failed to write safetensors: %s", e)
+
+        # ── Log model directory as MLflow artifact ────────────────────────────
+        try:
+            mlflow.log_artifacts(output_dir, artifact_path="model")
+            logger.info("Logged model artifacts to MLflow.")
+        except Exception as e:
+            logger.warning("Could not log artifacts to MLflow: %s", e)
+
+        # ── Optionally push to Hugging Face Hub ──────────────────────────────
+        if push_to_hub and repo_id:
+            try:
+                logger.info("Pushing model to Hugging Face Hub: %s", repo_id)
+                trainer.push_to_hub(repo_id=repo_id, private=False)
+                processor.push_to_hub(repo_id=repo_id, private=False)
+                mlflow.set_tag("hf_repo_id", repo_id)
+                logger.info(
+                    "Successfully pushed model and processor to Hub: %s", repo_id
+                )
+            except Exception as e:
+                logger.exception("Failed to push model to Hub: %s", e)
+        else:
+            if push_to_hub:
+                logger.warning(
+                    "push_to_hub enabled but repo_id not provided; skipping."
+                )
+
+        # ── Final WER summary ─────────────────────────────────────────────────
+        try:
+            wer_val = eval_results['eval_wer']
+            logger.info("Final eval WER: %.4f", wer_val)
+        except Exception:
+            logger.info(
+                "Evaluation finished; check trainer.evaluate() results."
+            )
 
 
 def main():
-    # Argument parser: note about VRAM usage for the default config
     parser = argparse.ArgumentParser(
-        description='Training script extracted from Colab.'
+        description='Training script with MLflow tracking and DVC data versioning.'
     )
 
     # NOTE FOR USERS: default setup (batch 8 with
@@ -458,104 +521,87 @@ def main():
     # if you run out of memory.
 
     parser.add_argument(
-        '--extracted_dir',
-        type=str,
-        default=EXTRACTED_DIR,
+        '--extracted_dir', type=str, default=EXTRACTED_DIR,
         help=(
             'Directory containing extracted dataset; expected to '
             'include a "wavs/" subfolder with audio files.'
         ),
     )
-
     parser.add_argument(
-        '--meta_csv',
-        type=str,
-        default=META_CSV,
+        '--meta_csv', type=str, default=META_CSV,
         help=(
             'Path to the metadata CSV (format: filename|transcript) '
             'used to build the HF Dataset.'
         ),
     )
-
     parser.add_argument(
-        '--model_id',
-        type=str,
-        default=MODEL_ID_DEFAULT,
+        '--model_id', type=str, default=MODEL_ID_DEFAULT,
         help=(
             'Hugging Face model repo id or local path for the '
             'pretrained Wav2Vec2 model/processor to load.'
         ),
     )
-
     parser.add_argument(
-        '--output_dir',
-        type=str,
-        default=OUTPUT_DIR_DEFAULT,
+        '--output_dir', type=str, default=OUTPUT_DIR_DEFAULT,
         help=(
             'Directory where the fine-tuned model, processor, '
             'and optional safetensors will be saved.'
         ),
     )
-
     parser.add_argument(
-        '--hf_token',
-        type=str,
-        default=None,
+        '--hf_token', type=str, default=None,
         help=(
             '(Optional) Hugging Face access token used to login '
             'and interact with the Hub.'
         ),
     )
-
     parser.add_argument(
-        '--per_device_train_batch_size',
-        type=int,
-        default=8,
+        '--per_device_train_batch_size', type=int, default=8,
         help=(
             'Per-device training batch size. Reduce this if you '
             'encounter out-of-memory (OOM) errors on your GPU.'
         ),
     )
-
     parser.add_argument(
-        '--gradient_accumulation_steps',
-        type=int,
-        default=6,
+        '--gradient_accumulation_steps', type=int, default=6,
         help=(
             'Number of steps to accumulate gradients before updating '
-            'model weights (useful to simulate larger effective batch '
-            'sizes).'
+            'model weights.'
         ),
     )
-
     parser.add_argument(
-        '--learning_rate',
-        type=float,
-        default=1e-5,
+        '--learning_rate', type=float, default=1e-5,
         help='Initial learning rate for the optimizer.',
     )
-
     parser.add_argument(
-        '--num_train_epochs',
-        type=int,
-        default=7,
+        '--num_train_epochs', type=int, default=7,
         help='Total number of training epochs to run.',
     )
-
     parser.add_argument(
-        '--push_to_hub',
-        action='store_true',
+        '--push_to_hub', action='store_true',
         help='Push the fine-tuned model to Hugging Face Hub.',
     )
-
     parser.add_argument(
-        '--repo_id',
-        type=str,
-        default=None,
+        '--repo_id', type=str, default=None,
         help=(
             'Hugging Face Hub repository ID for pushing the model. '
             'Required if --push_to_hub is enabled.'
         ),
+    )
+    # ── MLflow arguments ──────────────────────────────────────────────────────
+    parser.add_argument(
+        '--mlflow_tracking_uri', type=str,
+        default=os.environ.get(
+            "MLFLOW_TRACKING_URI", MLFLOW_TRACKING_URI_DEFAULT
+        ),
+        help='MLflow tracking server URI.',
+    )
+    parser.add_argument(
+        '--mlflow_experiment', type=str,
+        default=os.environ.get(
+            "MLFLOW_EXPERIMENT_NAME", MLFLOW_EXPERIMENT_DEFAULT
+        ),
+        help='MLflow experiment name.',
     )
 
     args = parser.parse_args()
@@ -573,10 +619,10 @@ def main():
         hf_token=args.hf_token,
         push_to_hub=args.push_to_hub,
         repo_id=args.repo_id,
+        mlflow_tracking_uri=args.mlflow_tracking_uri,
+        mlflow_experiment=args.mlflow_experiment,
     )
 
 
 if __name__ == '__main__':
     main()
-
-# python /content/train_wav2vec2.py

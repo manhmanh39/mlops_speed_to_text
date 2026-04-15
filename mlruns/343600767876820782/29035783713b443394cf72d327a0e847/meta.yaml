@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/343600767876820782/29035783713b443394cf72d327a0e847/artifacts
+end_time: 1776258378367
+entry_point_name: ''
+experiment_id: '343600767876820782'
+lifecycle_stage: active
+run_id: 29035783713b443394cf72d327a0e847
+run_name: bustling-stork-221
+run_uuid: 29035783713b443394cf72d327a0e847
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776258243175
+status: 3
+tags: []
+user_id: root

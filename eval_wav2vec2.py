@@ -10,6 +10,9 @@ processor/tokenizer, and it will still download model_handling.py
 from --model_id to instantiate the exact model architecture before
 loading local weights.
 
+Experiment results are tracked with MLflow; dataset provenance is
+managed via DVC.
+
 Usage example:
 python eval_wav2vec2.py \\
   --wav_dir /content/person_name_500/ \\
@@ -26,6 +29,7 @@ import re
 import uuid
 from importlib.machinery import SourceFileLoader
 
+import mlflow
 import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
@@ -72,6 +76,23 @@ logger = logging.getLogger(__name__)
 
 DEVICE_DEFAULT = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_ID_DEFAULT = "nguyenvulebinh/wav2vec2-large-vi-vlsp2020"
+
+# MLflow defaults
+MLFLOW_TRACKING_URI_DEFAULT = "http://mlflow:5000"
+MLFLOW_EXPERIMENT_DEFAULT = "wav2vec2-vietnamese-eval"
+
+
+# ─── MLflow helpers ──────────────────────────────────────────────────────────
+
+def setup_mlflow(tracking_uri: str, experiment_name: str):
+    """Configure MLflow tracking server and experiment."""
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+    logger.info(
+        "MLflow configured: uri=%s  experiment=%s",
+        tracking_uri,
+        experiment_name,
+    )
 
 
 # ------------------ Audio helpers ------------------
@@ -172,17 +193,9 @@ def convert_vietnamese_diacritics(text):
 
 def convert_vietnamese_number(text: str) -> str:
     char_map = {
-        '0': 'không',
-        '1': 'một',
-        '2': 'hai',
-        '3': 'ba',
-        '4': 'bốn',
-        '5': 'năm',
-        '6': 'sáu',
-        '7': 'bảy',
-        '8': 'tám',
-        '9': 'chín',
-        '10': 'mười',
+        '0': 'không', '1': 'một', '2': 'hai', '3': 'ba',
+        '4': 'bốn', '5': 'năm', '6': 'sáu', '7': 'bảy',
+        '8': 'tám', '9': 'chín', '10': 'mười',
     }
     return "".join(char_map.get(ch, ch) for ch in text)
 
@@ -203,20 +216,15 @@ def normalize_speech_patterns(text: str) -> str:
 
 
 def compare_support_dialect_tone(s1: str, s2: str) -> bool:
-    # 1. Bỏ dấu tiếng Việt
     s1 = convert_vietnamese_diacritics(s1.lower())
     s2 = convert_vietnamese_diacritics(s2.lower())
-
-    # 2. Xóa SẠCH khoảng trắng, dấu gạch dưới và ký tự đặc biệt
     s1_clean = re.sub(r"[\W_]", "", s1)
     s2_clean = re.sub(r"[\W_]", "", s2)
-
-    # 3. So sánh chuỗi con (Tên chuẩn có nằm trong câu AI nghe được không?)
     return s2_clean in s1_clean
 
 
 # ------------------ Transcription ------------------
-def transcribe_wav2vec(audio_path, processor_ref, model_ref, device):
+def transcribe_wav2vec(audio_path, processor_ref, model_ref, device, decoder=None):
     if librosa is None:
         raise RuntimeError("librosa is required for audio loading")
     audio_arr, sr = librosa.load(audio_path, sr=16000)
@@ -226,8 +234,21 @@ def transcribe_wav2vec(audio_path, processor_ref, model_ref, device):
     input_values = inputs.input_values.to(device)
     with torch.no_grad():
         logits = model_ref(input_values).logits
+    if decoder is not None:
+        logits_np = logits.cpu().numpy()[0]
+        return decoder.decode(logits_np)
+
+    # Nếu dùng Greedy (argmax)
     pred_ids = torch.argmax(logits, dim=-1)
-    return processor_ref.decode(pred_ids[0]).strip()
+    transcription = processor_ref.batch_decode(pred_ids)[0]
+    
+    # QUAN TRỌNG: Thay thế ký tự ngắt từ đặc biệt thành dấu cách chuẩn
+    # Thường là '|' hoặc ký tự định nghĩa trong tokenizer
+    word_delimiter = processor_ref.tokenizer.word_delimiter_token
+    if word_delimiter:
+        transcription = transcription.replace(word_delimiter, " ")
+        
+    return " ".join(transcription.split()) # Xóa khoảng trắng thừa
 
 
 # ------------------ Checkpoint loading helper ------------------
@@ -295,9 +316,7 @@ def try_load_checkpoint_into_model(model, checkpoint_path):
             sd_torch = {
                 k: torch.as_tensor(v).cpu() for k, v in sd.items()
             }
-            if "model" in sd_torch and isinstance(
-                sd_torch["model"], dict
-            ):
+            if "model" in sd_torch and isinstance(sd_torch["model"], dict):
                 sd_torch = sd_torch["model"]
             if _try_load_state_dict(model, sd_torch):
                 return True
@@ -325,44 +344,31 @@ def _deserialize_model_loader(model_id):
         model_loader = SourceFileLoader(
             "model_handling", model_script
         ).load_module()
-        logger.info(
-            "Downloaded model_handling.py from %s", model_id
-        )
+        logger.info("Downloaded model_handling.py from %s", model_id)
     except Exception as e:
         logger.warning(
             "Could not download model_handling.py: %s. "
-            "Will fallback to AutoModelForCTC.",
-            e,
+            "Will fallback to AutoModelForCTC.", e,
         )
     return model_loader
 
 
 def _load_processor(model_id, model_dir):
     if model_dir and os.path.isdir(model_dir):
-        logger.info(
-            "Loading processor from local model_dir: %s", model_dir
-        )
+        logger.info("Loading processor from local model_dir: %s", model_dir)
         return Wav2Vec2Processor.from_pretrained(model_dir)
-    logger.info(
-        "Loading processor from hub model_id: %s", model_id
-    )
+    logger.info("Loading processor from hub model_id: %s", model_id)
     return Wav2Vec2Processor.from_pretrained(model_id)
 
 
 def _instantiate_model(model_id, model_loader):
-    if model_loader is not None and hasattr(
-        model_loader, "Wav2Vec2ForCTC"
-    ):
+    if model_loader is not None and hasattr(model_loader, "Wav2Vec2ForCTC"):
         logger.info(
             "Instantiating custom Wav2Vec2ForCTC from model_handling.py"
         )
         ModelClass = model_loader.Wav2Vec2ForCTC
-        return ModelClass.from_pretrained(
-            model_id, trust_remote_code=True
-        )
-    logger.info(
-        "Falling back to AutoModelForCTC.from_pretrained(model_id)"
-    )
+        return ModelClass.from_pretrained(model_id, trust_remote_code=True)
+    logger.info("Falling back to AutoModelForCTC.from_pretrained(model_id)")
     from transformers import AutoModelForCTC
     return AutoModelForCTC.from_pretrained(model_id)
 
@@ -373,18 +379,42 @@ def _save_model_snapshot(model, processor, out_save_dir):
         model.save_pretrained(out_save_dir)
     except Exception as e:
         logger.warning(
-            "model.save_pretrained() failed: %s; "
-            "saving state_dict instead.",
-            e,
+            "model.save_pretrained() failed: %s; saving state_dict instead.", e,
         )
         torch.save(
             model.state_dict(),
             os.path.join(out_save_dir, "pytorch_model.bin"),
         )
     processor.save_pretrained(out_save_dir)
-    logger.info(
-        "Saved processor and model state to %s", out_save_dir
-    )
+    logger.info("Saved processor and model state to %s", out_save_dir)
+
+
+def _load_model_and_processor(model_id, model_dir):
+    model_loader = _deserialize_model_loader(model_id)
+    processor = _load_processor(model_id, model_dir)
+    model = _instantiate_model(model_id, model_loader)
+    return model, processor
+
+
+def _load_local_weights(model, local_weights):
+    if not local_weights or not os.path.exists(local_weights):
+        logger.info(
+            "No local_weights provided or not found: %s", local_weights,
+        )
+        return False
+
+    logger.info("Attempting to load local weights from %s", local_weights)
+    try:
+        loaded = try_load_checkpoint_into_model(model, local_weights)
+    except Exception as e:
+        logger.warning("Error while loading local weights: %s", e)
+        loaded = False
+    if not loaded:
+        logger.warning(
+            "Could not load local_weights fully. "
+            "Continuing with hub weights (may be unfine-tuned)."
+        )
+    return loaded
 
 
 # ------------------ Main evaluation flow ------------------
@@ -398,9 +428,7 @@ def _preprocess_wav(wav, norm_path):
         return norm_path
     except Exception as e:
         logger.warning(
-            "Preprocessing failed for %s: %s; using original file.",
-            wav,
-            e,
+            "Preprocessing failed for %s: %s; using original file.", wav, e,
         )
         return wav
 
@@ -420,8 +448,10 @@ def _print_wer_summary(num_pass, num_test, refs, hyps):
     try:
         wer_score = wer(refs, hyps)
         print(f"JIwer WER (refs vs hyps): {wer_score:.4f}")
+        return wer_score
     except Exception as e:
         print("Could not compute jiwer WER:", e)
+        return None
 
 
 def _resolve_output_dir(model_dir, local_weights, out_save_dir):
@@ -434,37 +464,6 @@ def _resolve_output_dir(model_dir, local_weights, out_save_dir):
     return "./out_eval"
 
 
-def _load_model_and_processor(model_id, model_dir):
-    model_loader = _deserialize_model_loader(model_id)
-    processor = _load_processor(model_id, model_dir)
-    model = _instantiate_model(model_id, model_loader)
-    return model, processor
-
-
-def _load_local_weights(model, local_weights):
-    if not local_weights or not os.path.exists(local_weights):
-        logger.info(
-            "No local_weights provided or not found: %s",
-            local_weights,
-        )
-        return False
-
-    logger.info(
-        "Attempting to load local weights from %s", local_weights
-    )
-    try:
-        loaded = try_load_checkpoint_into_model(model, local_weights)
-    except Exception as e:
-        logger.warning("Error while loading local weights: %s", e)
-        loaded = False
-    if not loaded:
-        logger.warning(
-            "Could not load local_weights fully. "
-            "Continuing with hub weights (may be unfine-tuned)."
-        )
-    return loaded
-
-
 def evaluate_folder(
     wav_dir,
     model_id=None,
@@ -473,101 +472,150 @@ def evaluate_folder(
     out_save_dir=None,
     run_postprocess=False,
     device=DEVICE_DEFAULT,
+    mlflow_tracking_uri=MLFLOW_TRACKING_URI_DEFAULT,
+    mlflow_experiment=MLFLOW_EXPERIMENT_DEFAULT,
 ):
     if not wav_dir or not os.path.exists(wav_dir):
         logger.error("wav_dir not found: %s", wav_dir)
         return
 
     model_id = model_id or MODEL_ID_DEFAULT
-    out_save_dir = _resolve_output_dir(
-        model_dir, local_weights, out_save_dir
-    )
+    out_save_dir = _resolve_output_dir(model_dir, local_weights, out_save_dir)
     os.makedirs(out_save_dir, exist_ok=True)
 
-    model, processor = _load_model_and_processor(model_id, model_dir)
-    model.eval()
-    _load_local_weights(model, local_weights)
+    # ── MLflow setup ──────────────────────────────────────────────────────────
+    setup_mlflow(mlflow_tracking_uri, mlflow_experiment)
 
-    model.to(device)
-    model.eval()
-    _save_model_snapshot(model, processor, out_save_dir)
+    with mlflow.start_run():
+        # Log eval configuration
+        mlflow.log_params({
+            "wav_dir": wav_dir,
+            "model_id": model_id,
+            "model_dir": model_dir or "",
+            "local_weights": local_weights or "",
+            "run_postprocess": run_postprocess,
+            "device": device,
+        })
 
-    # Evaluate WAV files
-    csv_out = os.path.join(
-        out_save_dir, "transcription_results_wav2vec2.csv"
-    )
-    with open(
-        csv_out, mode="w", newline="", encoding="utf-8"
-    ) as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(["path_wav", "expected_name", "transcription"])
-        num_pass = num_test = 0
-        refs = []
-        hyps = []
-
-        pattern = os.path.join(wav_dir, "**", "*.wav")
-        for wav in glob.glob(pattern, recursive=True):
-            fname = os.path.basename(wav)
-            expected = re.sub(r"(?:_\d+)?\.wav$", "", fname)
-            tmpdir = "tmp"
-            os.makedirs(tmpdir, exist_ok=True)
-            norm_path = os.path.join(
-                tmpdir, f"{uuid.uuid4()}_norm.wav"
+        # Log DVC data provenance for eval set
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["dvc", "status", "--json"],
+                capture_output=True, text=True, cwd=wav_dir
             )
-            denoise_path = _preprocess_wav(wav, norm_path)
+            if result.returncode == 0:
+                mlflow.set_tag("dvc.eval_status", result.stdout.strip()[:500])
+        except Exception:
+            pass
 
-            try:
-                pred = transcribe_wav2vec(
-                    denoise_path, processor, model, device
+        # THAY THẾ toàn bộ khối "NẠP MODEL ĐỈNH CAO" bằng:
+        model, processor = _load_model_and_processor(model_id, model_dir)
+        model.eval()
+        _load_local_weights(model, local_weights)
+        model.to(device)
+        model.eval()
+        _save_model_snapshot(model, processor, out_save_dir)
+
+        # Evaluate WAV files
+        csv_out = os.path.join(
+            out_save_dir, "transcription_results_wav2vec2.csv"
+        )
+        with open(csv_out, mode="w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(["path_wav", "expected_name", "transcription"])
+            num_pass = num_test = 0
+            refs = []
+            hyps = []
+
+            pattern = os.path.join(wav_dir, "**", "*.wav")
+            for wav in glob.glob(pattern, recursive=True):
+                fname = os.path.basename(wav)
+                
+                # 1. Lấy tên gốc từ file
+                expected_raw = re.sub(r"(?:_\d+)?\.wav$", "", fname) 
+                
+                # 2. Quan trọng: Chuyển gạch dưới thành dấu cách để khớp với format của AI
+                expected_for_wer = expected_raw.replace("_", " ")
+                tmpdir = "tmp"
+                os.makedirs(tmpdir, exist_ok=True)
+                norm_path = os.path.join(
+                    tmpdir, f"{uuid.uuid4()}_norm.wav"
                 )
-            except Exception as e:
-                logger.exception(
-                    "Transcription failed for %s: %s",
-                    denoise_path,
-                    e,
+                denoise_path = _preprocess_wav(wav, norm_path)
+
+                try:
+                    pred = transcribe_wav2vec(
+                        denoise_path, processor, model, device
+                    )
+                except Exception as e:
+                    logger.exception(
+                        "Transcription failed for %s: %s", denoise_path, e,
+                    )
+                    pred = ""
+
+                pred_pp = (
+                    vietnamese_number_converter(pred)
+                    if run_postprocess
+                    else pred
                 )
-                pred = ""
+                writer.writerow([wav, expected, pred_pp])
+                csv_file.flush()
 
-            pred_pp = (
-                vietnamese_number_converter(pred)
-                if run_postprocess
-                else pred
-            )
-            writer.writerow([wav, expected, pred_pp])
-            csv_file.flush()
+                if unidecode:
+                    clean_pred = unidecode(pred_pp.lower())
+                    clean_exp = unidecode(expected.lower())
+                else:
+                    clean_pred = convert_vietnamese_diacritics(pred_pp.lower())
+                    clean_exp = convert_vietnamese_diacritics(expected.lower())
 
-            # Lấy chuỗi không dấu
-            if unidecode:
-                clean_pred = unidecode(pred_pp.lower())
-                clean_exp = unidecode(expected.lower())
-            else:
-                clean_pred = convert_vietnamese_diacritics(pred_pp.lower())
-                clean_exp = convert_vietnamese_diacritics(expected.lower())
+                clean_pred = re.sub(r"[\W_]", "", clean_pred)
+                clean_exp = re.sub(r"[\W_]", "", clean_exp)
 
-            # Xóa sạch mọi ký tự lạ, gạch dưới và khoảng trắng để so khớp
-            clean_pred = re.sub(r"[\W_]", "", clean_pred)
-            clean_exp = re.sub(r"[\W_]", "", clean_exp)
+                ok = clean_exp in clean_pred
+                status = "PASS" if ok else "FAIL"
+                print(
+                    f"{status} | File: {fname} | "
+                    f"Expected: {expected} | Got: {pred_pp}"
+                )
+                if ok:
+                    num_pass += 1
+                num_test += 1
 
-            # Kiểm tra xem tên chuẩn có xuất hiện trong câu AI nói không
-            ok = clean_exp in clean_pred
+                refs.append(expected.lower())
+                hyps.append(pred_pp.lower())
 
-            status = "PASS" if ok else "FAIL"
-            print(
-                f"{status} | File: {fname} | "
-                f"Expected: {expected} | Got: {pred_pp}"
-            )
-            if ok:
-                num_pass += 1
-            num_test += 1
+        print("-" * 30)
+        wer_score = _print_wer_summary(num_pass, num_test, refs, hyps)
 
-            refs.append(expected.lower())
-            hyps.append(pred_pp.lower())
+        # ── Log metrics to MLflow ─────────────────────────────────────────────
+        if num_test > 0:
+            pass_rate = num_pass * 100 / num_test
+            mlflow.log_metrics({
+                "eval.num_files": num_test,
+                "eval.num_pass": num_pass,
+                "eval.pass_rate_pct": pass_rate,
+            })
+            if wer_score is not None:
+                mlflow.log_metric("eval.wer", wer_score)
 
-    print("-" * 30)
-    _print_wer_summary(num_pass, num_test, refs, hyps)
+        # Log CSV as MLflow artifact
+        try:
+            mlflow.log_artifact(csv_out, artifact_path="eval_results")
+            logger.info("Logged eval CSV to MLflow.")
+        except Exception as e:
+            logger.warning("Could not log CSV artifact to MLflow: %s", e)
 
-    # run compare-name logic on saved CSV
-    compare_csv_and_print_results(csv_out)
+        # run compare-name logic on saved CSV
+        compare_results = compare_csv_and_print_results(csv_out)
+
+        # Log compare-name metrics
+        if compare_results:
+            mlflow.log_metrics({
+                "compare.num_pass": compare_results["num_pass"],
+                "compare.num_fail": compare_results["num_fail"],
+                "compare.accuracy_pct": compare_results["accuracy_pct"],
+            })
 
 
 def compare_csv_and_print_results(file_csv: str):
@@ -595,69 +643,93 @@ def compare_csv_and_print_results(file_csv: str):
             else:
                 num_pass += 1
             total += 1
+
     print("\nCompare-name summary:")
     print("Số lượng pass: ", num_pass)
     print("Số lượng fail: ", num_fail)
+    accuracy_pct = 0.0
     if total > 0:
-        print("Tỉ lệ đúng:", f"{(num_pass * 100 / total):.2f}%")
+        accuracy_pct = num_pass * 100 / total
+        print("Tỉ lệ đúng:", f"{accuracy_pct:.2f}%")
     else:
         print("No rows in CSV to compare.")
+
+    return {
+        "num_pass": num_pass,
+        "num_fail": num_fail,
+        "total": total,
+        "accuracy_pct": accuracy_pct,
+    }
+
+
+def build_ctcdecoder(labels, kenlm_model_path=None, alpha=0.5, beta=1.5):
+    """Build a pyctcdecode beam-search CTC decoder."""
+    try:
+        from pyctcdecode import build_ctcdecoder as _build
+        return _build(
+            labels,
+            kenlm_model=kenlm_model_path,
+            alpha=alpha,
+            beta=beta,
+        )
+    except Exception as e:
+        logger.warning("Could not build ctcdecoder: %s", e)
+        return None
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
         description=(
-            "Eval wav2vec2 loading hub architecture + local safetensors"
+            "Eval wav2vec2 with MLflow tracking and DVC data versioning"
         )
     )
     p.add_argument(
-        "--wav_dir",
-        type=str,
-        required=True,
+        "--wav_dir", type=str, required=True,
         help="Directory with .wav files (recursive)",
     )
     p.add_argument(
-        "--model_id",
-        type=str,
-        default=f"{MODEL_ID_DEFAULT}",
+        "--model_id", type=str, default=f"{MODEL_ID_DEFAULT}",
         help=(
-            "Hub repo id (used to get model_handling.py "
-            "and architecture)"
+            "Hub repo id (used to get model_handling.py and architecture)"
         ),
     )
     p.add_argument(
-        "--model_dir",
-        type=str,
-        default=None,
+        "--model_dir", type=str, default=None,
         help=(
             "Local model folder (containing tokenizer/config); "
             "preferred for processor files"
         ),
     )
     p.add_argument(
-        "--local_weights",
-        type=str,
-        default=None,
-        help=(
-            "Path to local safetensors or torch checkpoint (optional)"
-        ),
+        "--local_weights", type=str, default=None,
+        help="Path to local safetensors or torch checkpoint (optional)",
     )
     p.add_argument(
-        "--out_save_dir",
-        type=str,
-        default=None,
+        "--out_save_dir", type=str, default=None,
         help=(
             "Where to save processor + CSV "
             "(defaults to model_dir or local_weights dir)"
         ),
     )
     p.add_argument(
-        "--run_postprocess",
-        action="store_true",
+        "--run_postprocess", action="store_true",
         help="Apply vietnamese number postprocessing",
     )
+    p.add_argument("--device", type=str, default=DEVICE_DEFAULT)
+    # ── MLflow arguments ──────────────────────────────────────────────────────
     p.add_argument(
-        "--device", type=str, default=DEVICE_DEFAULT
+        "--mlflow_tracking_uri", type=str,
+        default=os.environ.get(
+            "MLFLOW_TRACKING_URI", MLFLOW_TRACKING_URI_DEFAULT
+        ),
+        help="MLflow tracking server URI.",
+    )
+    p.add_argument(
+        "--mlflow_experiment", type=str,
+        default=os.environ.get(
+            "MLFLOW_EXPERIMENT_NAME", MLFLOW_EXPERIMENT_DEFAULT
+        ),
+        help="MLflow experiment name.",
     )
     args = p.parse_args()
 
@@ -669,4 +741,6 @@ if __name__ == "__main__":
         out_save_dir=args.out_save_dir,
         run_postprocess=args.run_postprocess,
         device=args.device,
+        mlflow_tracking_uri=args.mlflow_tracking_uri,
+        mlflow_experiment=args.mlflow_experiment,
     )

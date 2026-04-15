@@ -1,31 +1,111 @@
 version: '3.8'
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Services
+#   mlflow          – experiment tracking UI + REST API  (port 5000)
+#   wav2vec2-train  – fine-tuning job  (GPU)
+#   wav2vec2-eval   – evaluation job   (GPU)
+#   wav2vec2-api    – FastAPI inference server          (port 8000)
+# ──────────────────────────────────────────────────────────────────────────────
+
 services:
+  # --------------------------------------------------------------------------
+  # MLflow Tracking Server
+  # --------------------------------------------------------------------------
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.13.0
+    container_name: mlflow-server
+    user: "root"  # Ép quyền cao nhất để ghi file không bị lỗi
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/app/mlruns
+    working_dir: /app
+    command: mlflow ui --host 0.0.0.0 --port 5000
+    networks:
+      - wav2vec2-net
+
+  # --------------------------------------------------------------------------
+  # Training Job (Greedy + MLflow)
+  # --------------------------------------------------------------------------
   wav2vec2-train:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     image: wav2vec2-vi:latest
     container_name: wav2vec2-train
+    depends_on:
+      - mlflow
     volumes:
-      - ./data_train_70.6:/app/data/train
+      - ./data_train_70.6:/app/data_train_70.6
       - ./models:/app/models
-      - ./outputs:/app/outputs
     environment:
-      - WANDB_API_KEY=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
-      - WANDB_PROJECT=mlops
-      - WANDB_MODE=online
-      - HF_TOKEN=${HF_TOKEN}
-    tty: true
-    stdin_open: true
-    # Thêm dấu > để Docker nối các dòng dưới thành 1 lệnh
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
     command: >
       python train_wav2vec2.py
-      --extracted_dir /app/data/train
-      --meta_csv /app/data/train/metadata.csv
+      --extracted_dir /app/data_train_70.6
+      --meta_csv /app/data_train_70.6/metadata.csv
       --output_dir /app/models/wav2vec2-finetuned
       --num_train_epochs 20
       --learning_rate 1e-5
+      --per_device_train_batch_size 2  
+      --gradient_accumulation_steps 12
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - wav2vec2-net
+
+  # --------------------------------------------------------------------------
+  # Evaluation Job (Chấm điểm Model)
+  # --------------------------------------------------------------------------
+  wav2vec2-eval:
+    build: .
+    image: wav2vec2-vi:latest
+    container_name: wav2vec2-eval
+    depends_on:
+      - mlflow
+    volumes:
+      - ./data_train_70.6:/app/data_train_70.6
+      - ./person_name_500:/app/person_name_500   # ← thêm volume này
+      - ./models:/app/models
+      - ./outputs:/app/outputs
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: >
+      python eval_wav2vec2.py
+        --model_dir /app/models/wav2vec2-finetuned
+        --local_weights /app/models/wav2vec2-finetuned/model.safetensors
+        --wav_dir /app/person_name_500
+        --out_save_dir /app/outputs
+        --run_postprocess
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - wav2vec2-net
+
+  # --------------------------------------------------------------------------
+  # FastAPI Inference Server
+  # --------------------------------------------------------------------------
+  wav2vec2-api:
+    build: .
+    container_name: wav2vec2-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mlflow
+    volumes:
+      - ./models:/app/models
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: uvicorn app:app --host 0.0.0.0 --port 8000
     networks:
       - wav2vec2-net
     deploy:
@@ -36,46 +116,6 @@ services:
               count: 1
               capabilities: [gpu]
 
-  wav2vec2-eval:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: wav2vec2-vi:latest
-    container_name: wav2vec2-eval
-    volumes:
-      - ./data_train_70.6:/app/data/train
-      - ./person_name_500:/app/data/eval
-      - ./models:/app/models
-      - ./outputs:/app/outputs
-    # Sửa lại cú pháp > ở đây luôn cho an toàn
-    command: >
-      python eval_wav2vec2.py
-      --wav_dir /app/data/eval
-      --model_dir /app/models/wav2vec2-finetuned
-      --local_weights /app/models/wav2vec2-finetuned/model.safetensors
-      --out_save_dir /app/outputs
-      --run_postprocess
-    networks:
-      - wav2vec2-net
-    depends_on:
-      - wav2vec2-train
-
-  wav2vec2-api:
-    build: .
-    container_name: wav2vec2-api
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./models:/app/models
-    command: uvicorn app:app --host 0.0.0.0 --port 8000
-    # deploy:
-      # resources:
-      #   reservations:
-      #     devices:
-      #       - driver: nvidia
-      #         count: 1
-      #         capabilities: [gpu]
-
 networks:
   wav2vec2-net:
     driver: bridge
@@ -84,3 +124,4 @@ volumes:
   data:
   models:
   outputs:
+  mlruns:

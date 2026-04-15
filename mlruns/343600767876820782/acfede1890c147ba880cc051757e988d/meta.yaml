@@ -1,0 +1,16 @@
+artifact_uri: mlflow-artifacts:/343600767876820782/acfede1890c147ba880cc051757e988d/artifacts
+deleted_time: 1776258580179
+end_time: 1776256366546
+entry_point_name: ''
+experiment_id: '343600767876820782'
+lifecycle_stage: deleted
+run_id: acfede1890c147ba880cc051757e988d
+run_name: illustrious-fowl-34
+run_uuid: acfede1890c147ba880cc051757e988d
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776256365816
+status: 4
+tags: []
+user_id: root
