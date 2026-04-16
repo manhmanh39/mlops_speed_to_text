@@ -144,6 +144,8 @@ async def health_check():
         return {"status": "healthy", "device": DEVICE}
     return {"status": "loading"}, 503
 
+
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
