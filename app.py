@@ -78,7 +78,7 @@ async def load_model():
                 "/resolve/main/vi_lm_4grams.bin.zip",
                 zip_path,
             )
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            with zipfile.ZipFile(zip_path, "r") as zip_ref:
                 zip_ref.extractall(lm_dir)
             os.remove(zip_path)
 
@@ -86,7 +86,7 @@ async def load_model():
         sorted_vocab = sorted(vocab_dict.items(), key=lambda x: x[1])
         vocab_list = [item[0] for item in sorted_vocab]
         if len(vocab_list) > model.config.vocab_size:
-            vocab_list = vocab_list[:model.config.vocab_size]
+            vocab_list = vocab_list[: model.config.vocab_size]
         if processor.tokenizer.pad_token in vocab_list:
             vocab_list[vocab_list.index(processor.tokenizer.pad_token)] = ""
         word_delim = processor.tokenizer.word_delimiter_token
@@ -119,9 +119,7 @@ class PredictionResponse(BaseModel):
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile):
     if not file.filename.endswith(".wav"):
-        raise HTTPException(
-            status_code=400, detail="Only .wav files are supported"
-        )
+        raise HTTPException(status_code=400, detail="Only .wav files are supported")
 
     temp_path = f"temp_{file.filename}"
     with open(temp_path, "wb") as buffer:
@@ -156,11 +154,10 @@ async def predict(file: UploadFile):
 async def health_check():
     if model is not None and decoder is not None:
         return {"status": "healthy", "device": str(DEVICE)}
-    raise HTTPException(
-        status_code=503, detail="Model or KenLM is still loading"
-    )
+    raise HTTPException(status_code=503, detail="Model or KenLM is still loading")
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

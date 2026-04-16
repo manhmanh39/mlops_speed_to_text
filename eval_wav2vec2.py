@@ -20,6 +20,7 @@ python eval_wav2vec2.py \
   --local_weights /content/wav2vec2-finetuned/model.safetensors \
   --run_postprocess
 """
+
 import argparse
 import csv
 import glob
@@ -84,6 +85,7 @@ MLFLOW_EXPERIMENT_DEFAULT = "wav2vec2-vietnamese-eval"
 
 # ─── MLflow helpers ──────────────────────────────────────────────────────────
 
+
 def setup_mlflow(tracking_uri: str, experiment_name: str):
     """Configure MLflow tracking server and experiment."""
     mlflow.set_tracking_uri(tracking_uri)
@@ -110,9 +112,7 @@ def normalize_audio_pydub(input_file, output_file, target_level=-24):
 
 def remove_noise(input_file, output_file):
     if wavfile is None or nr is None:
-        raise RuntimeError(
-            "scipy.io.wavfile or noisereduce not available"
-        )
+        raise RuntimeError("scipy.io.wavfile or noisereduce not available")
     rate, data = wavfile.read(input_file)
     if data.dtype != np.float32:
         data = data.astype("float32") / 32768.0
@@ -123,9 +123,18 @@ def remove_noise(input_file, output_file):
 # ------------------ Vietnamese normalization helpers ------------------
 def vietnamese_number_converter(text):
     number_mapping = {
-        "không": "0", "hông": "0", "một": "1", "mốt": "1",
-        "hai": "2", "ba": "3", "bốn": "4", "năm": "5",
-        "sáu": "6", "bảy": "7", "tám": "8", "chín": "9",
+        "không": "0",
+        "hông": "0",
+        "một": "1",
+        "mốt": "1",
+        "hai": "2",
+        "ba": "3",
+        "bốn": "4",
+        "năm": "5",
+        "sáu": "6",
+        "bảy": "7",
+        "tám": "8",
+        "chín": "9",
     }
     if not text:
         return text
@@ -140,20 +149,13 @@ def vietnamese_number_converter(text):
             punct = ""
             j = i
             while j < len(words) and (
-                "".join(c for c in words[j].lower() if c.isalpha())
-                in number_mapping
+                "".join(c for c in words[j].lower() if c.isalpha()) in number_mapping
             ):
-                punct_tmp = "".join(
-                    c for c in words[j] if not c.isalpha()
-                )
+                punct_tmp = "".join(c for c in words[j] if not c.isalpha())
                 punct = punct_tmp or punct
-                seq.append(
-                    "".join(c for c in words[j].lower() if c.isalpha())
-                )
+                seq.append("".join(c for c in words[j].lower() if c.isalpha()))
                 j += 1
-            result.append(
-                "".join(number_mapping[x] for x in seq) + punct
-            )
+            result.append("".join(number_mapping[x] for x in seq) + punct)
             i = j
         else:
             result.append(words[i])
@@ -163,19 +165,73 @@ def vietnamese_number_converter(text):
 
 def convert_vietnamese_diacritics(text):
     char_map = {
-        'à': 'a', 'á': 'a', 'ả': 'a', 'ã': 'a', 'ạ': 'a',
-        'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ẳ': 'a', 'ẵ': 'a', 'ặ': 'a',
-        'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ẩ': 'a', 'ẫ': 'a', 'ậ': 'a',
-        'đ': 'd',
-        'è': 'e', 'é': 'e', 'ẻ': 'e', 'ẽ': 'e', 'ẹ': 'e',
-        'ê': 'e', 'ề': 'e', 'ế': 'e', 'ể': 'e', 'ễ': 'e', 'ệ': 'e',
-        'ì': 'i', 'í': 'i', 'ỉ': 'i', 'ĩ': 'i', 'ị': 'i',
-        'ò': 'o', 'ó': 'o', 'ỏ': 'o', 'õ': 'o', 'ọ': 'o',
-        'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ổ': 'o', 'ỗ': 'o', 'ộ': 'o',
-        'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ở': 'o', 'ỡ': 'o', 'ợ': 'o',
-        'ù': 'u', 'ú': 'u', 'ủ': 'u', 'ũ': 'u', 'ụ': 'u',
-        'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ử': 'u', 'ữ': 'u', 'ự': 'u',
-        'ỳ': 'y', 'ý': 'y', 'ỷ': 'y', 'ỹ': 'y', 'ỵ': 'y',
+        "à": "a",
+        "á": "a",
+        "ả": "a",
+        "ã": "a",
+        "ạ": "a",
+        "ă": "a",
+        "ằ": "a",
+        "ắ": "a",
+        "ẳ": "a",
+        "ẵ": "a",
+        "ặ": "a",
+        "â": "a",
+        "ầ": "a",
+        "ấ": "a",
+        "ẩ": "a",
+        "ẫ": "a",
+        "ậ": "a",
+        "đ": "d",
+        "è": "e",
+        "é": "e",
+        "ẻ": "e",
+        "ẽ": "e",
+        "ẹ": "e",
+        "ê": "e",
+        "ề": "e",
+        "ế": "e",
+        "ể": "e",
+        "ễ": "e",
+        "ệ": "e",
+        "ì": "i",
+        "í": "i",
+        "ỉ": "i",
+        "ĩ": "i",
+        "ị": "i",
+        "ò": "o",
+        "ó": "o",
+        "ỏ": "o",
+        "õ": "o",
+        "ọ": "o",
+        "ô": "o",
+        "ồ": "o",
+        "ố": "o",
+        "ổ": "o",
+        "ỗ": "o",
+        "ộ": "o",
+        "ơ": "o",
+        "ờ": "o",
+        "ớ": "o",
+        "ở": "o",
+        "ỡ": "o",
+        "ợ": "o",
+        "ù": "u",
+        "ú": "u",
+        "ủ": "u",
+        "ũ": "u",
+        "ụ": "u",
+        "ư": "u",
+        "ừ": "u",
+        "ứ": "u",
+        "ử": "u",
+        "ữ": "u",
+        "ự": "u",
+        "ỳ": "y",
+        "ý": "y",
+        "ỷ": "y",
+        "ỹ": "y",
+        "ỵ": "y",
     }
     uppercase_map = {k.upper(): v.upper() for k, v in char_map.items()}
     char_map.update(uppercase_map)
@@ -184,9 +240,17 @@ def convert_vietnamese_diacritics(text):
 
 def convert_vietnamese_number(text: str) -> str:
     char_map = {
-        '0': 'không', '1': 'một', '2': 'hai', '3': 'ba',
-        '4': 'bốn', '5': 'năm', '6': 'sáu', '7': 'bảy',
-        '8': 'tám', '9': 'chín', '10': 'mười',
+        "0": "không",
+        "1": "một",
+        "2": "hai",
+        "3": "ba",
+        "4": "bốn",
+        "5": "năm",
+        "6": "sáu",
+        "7": "bảy",
+        "8": "tám",
+        "9": "chín",
+        "10": "mười",
     }
     return "".join(char_map.get(ch, ch) for ch in text)
 
@@ -228,7 +292,7 @@ def normalize_for_jiwer(text: str) -> str:
 
     # Xóa gạch dưới, giữ lại chữ và số
     text = text.replace("_", " ")
-    text = re.sub(r'[^a-z0-9\s]', '', text)
+    text = re.sub(r"[^a-z0-9\s]", "", text)
 
     # Xóa khoảng trắng thừa
     return " ".join(text.split())
@@ -255,9 +319,9 @@ def _remap_state_dict_keys(state_dict):
     for key, value in state_dict.items():
         new_key = key
         if new_key.startswith("model."):
-            new_key = new_key[len("model."):]
+            new_key = new_key[len("model.") :]
         if new_key.startswith("module."):
-            new_key = new_key[len("module."):]
+            new_key = new_key[len("module.") :]
         remapped[new_key] = value
     return remapped
 
@@ -271,9 +335,7 @@ def _try_load_state_dict(model, state_dict):
         remapped_state = _remap_state_dict_keys(state_dict)
         try:
             model.load_state_dict(remapped_state, strict=False)
-            logger.info(
-                "Loaded checkpoint after remapping (strict=False)."
-            )
+            logger.info("Loaded checkpoint after remapping (strict=False).")
             return True
         except Exception:
             return False
@@ -305,15 +367,10 @@ def _convert_checkpoint_to_tensor_dict(cand):
 
 
 def try_load_checkpoint_into_model(model, checkpoint_path):
-    if (
-        checkpoint_path.endswith(".safetensors")
-        and load_safetensors is not None
-    ):
+    if checkpoint_path.endswith(".safetensors") and load_safetensors is not None:
         try:
             sd = load_safetensors(checkpoint_path)
-            sd_torch = {
-                k: torch.as_tensor(v).cpu() for k, v in sd.items()
-            }
+            sd_torch = {k: torch.as_tensor(v).cpu() for k, v in sd.items()}
             if "model" in sd_torch and isinstance(sd_torch["model"], dict):
                 sd_torch = sd_torch["model"]
             if _try_load_state_dict(model, sd_torch):
@@ -336,17 +393,13 @@ def try_load_checkpoint_into_model(model, checkpoint_path):
 def _deserialize_model_loader(model_id):
     model_loader = None
     try:
-        model_script = hf_hub_download(
-            repo_id=model_id, filename="model_handling.py"
-        )
-        model_loader = SourceFileLoader(
-            "model_handling", model_script
-        ).load_module()
+        model_script = hf_hub_download(repo_id=model_id, filename="model_handling.py")
+        model_loader = SourceFileLoader("model_handling", model_script).load_module()
         logger.info("Downloaded model_handling.py from %s", model_id)
     except Exception as e:
         logger.warning(
-            "Could not download model_handling.py: %s. "
-            "Will fallback to AutoModelForCTC.", e,
+            "Could not download model_handling.py: %s. Will fallback to AutoModelForCTC.",
+            e,
         )
     return model_loader
 
@@ -361,13 +414,12 @@ def _load_processor(model_id, model_dir):
 
 def _instantiate_model(model_id, model_loader):
     if model_loader is not None and hasattr(model_loader, "Wav2Vec2ForCTC"):
-        logger.info(
-            "Instantiating custom Wav2Vec2ForCTC from model_handling.py"
-        )
+        logger.info("Instantiating custom Wav2Vec2ForCTC from model_handling.py")
         ModelClass = model_loader.Wav2Vec2ForCTC
         return ModelClass.from_pretrained(model_id, trust_remote_code=True)
     logger.info("Falling back to AutoModelForCTC.from_pretrained(model_id)")
     from transformers import AutoModelForCTC
+
     return AutoModelForCTC.from_pretrained(model_id)
 
 
@@ -377,7 +429,8 @@ def _save_model_snapshot(model, processor, out_save_dir):
         model.save_pretrained(out_save_dir)
     except Exception as e:
         logger.warning(
-            "model.save_pretrained() failed: %s; saving state_dict instead.", e,
+            "model.save_pretrained() failed: %s; saving state_dict instead.",
+            e,
         )
         torch.save(
             model.state_dict(),
@@ -397,7 +450,8 @@ def _load_model_and_processor(model_id, model_dir):
 def _load_local_weights(model, local_weights):
     if not local_weights or not os.path.exists(local_weights):
         logger.info(
-            "No local_weights provided or not found: %s", local_weights,
+            "No local_weights provided or not found: %s",
+            local_weights,
         )
         return False
 
@@ -409,8 +463,7 @@ def _load_local_weights(model, local_weights):
         loaded = False
     if not loaded:
         logger.warning(
-            "Could not load local_weights fully. "
-            "Continuing with hub weights (may be unfine-tuned)."
+            "Could not load local_weights fully. Continuing with hub weights (may be unfine-tuned)."
         )
     return loaded
 
@@ -426,7 +479,9 @@ def _preprocess_wav(wav, norm_path):
         return norm_path
     except Exception as e:
         logger.warning(
-            "Preprocessing failed for %s: %s; using original file.", wav, e,
+            "Preprocessing failed for %s: %s; using original file.",
+            wav,
+            e,
         )
         return wav
 
@@ -437,10 +492,7 @@ def _print_wer_summary(num_pass, num_test, refs, hyps):
         print("\u274c No .wav files found to evaluate.")
         return None, None
 
-    print(
-        f"Total pass: {num_pass}/{num_test} "
-        f"~ {num_pass * 100 / num_test:.2f}%"
-    )
+    print(f"Total pass: {num_pass}/{num_test} ~ {num_pass * 100 / num_test:.2f}%")
     if wer is None or cer is None:
         logger.warning("jiwer not installed; cannot compute WER/CER.")
         return None, None
@@ -466,7 +518,7 @@ def _resolve_output_dir(model_dir, local_weights, out_save_dir):
     return "./out_eval"
 
 
-def evaluate_folder( # noqa: C901
+def evaluate_folder(  # noqa: C901
     wav_dir,
     model_id=None,
     model_dir=None,
@@ -490,21 +542,23 @@ def evaluate_folder( # noqa: C901
 
     with mlflow.start_run():
         # Log eval configuration
-        mlflow.log_params({
-            "wav_dir": wav_dir,
-            "model_id": model_id,
-            "model_dir": model_dir or "",
-            "local_weights": local_weights or "",
-            "run_postprocess": run_postprocess,
-            "device": device,
-        })
+        mlflow.log_params(
+            {
+                "wav_dir": wav_dir,
+                "model_id": model_id,
+                "model_dir": model_dir or "",
+                "local_weights": local_weights or "",
+                "run_postprocess": run_postprocess,
+                "device": device,
+            }
+        )
 
         # Log DVC data provenance for eval set
         try:
             import subprocess
+
             result = subprocess.run(
-                ["dvc", "status", "--json"],
-                capture_output=True, text=True, cwd=wav_dir
+                ["dvc", "status", "--json"], capture_output=True, text=True, cwd=wav_dir
             )
             if result.returncode == 0:
                 mlflow.set_tag("dvc.eval_status", result.stdout.strip()[:500])
@@ -520,9 +574,7 @@ def evaluate_folder( # noqa: C901
         _save_model_snapshot(model, processor, out_save_dir)
 
         # Evaluate WAV files
-        csv_out = os.path.join(
-            out_save_dir, "transcription_results_wav2vec2.csv"
-        )
+        csv_out = os.path.join(out_save_dir, "transcription_results_wav2vec2.csv")
         with open(csv_out, mode="w", newline="", encoding="utf-8") as csv_file:
             writer = csv.writer(csv_file)
             writer.writerow(["path_wav", "expected_name", "transcription"])
@@ -542,25 +594,19 @@ def evaluate_folder( # noqa: C901
 
                 tmpdir = "tmp"
                 os.makedirs(tmpdir, exist_ok=True)
-                norm_path = os.path.join(
-                    tmpdir, f"{uuid.uuid4()}_norm.wav"
-                )
+                norm_path = os.path.join(tmpdir, f"{uuid.uuid4()}_norm.wav")
                 denoise_path = _preprocess_wav(wav, norm_path)
                 try:
-                    pred = transcribe_wav2vec(
-                        denoise_path, processor, model, device
-                    )
+                    pred = transcribe_wav2vec(denoise_path, processor, model, device)
                 except Exception as e:
                     logger.exception(
-                        "Transcription failed for %s: %s", denoise_path, e,
+                        "Transcription failed for %s: %s",
+                        denoise_path,
+                        e,
                     )
                     pred = ""
 
-                pred_pp = (
-                    vietnamese_number_converter(pred)
-                    if run_postprocess
-                    else pred
-                )
+                pred_pp = vietnamese_number_converter(pred) if run_postprocess else pred
                 writer.writerow([wav, expected, pred_pp])
                 csv_file.flush()
 
@@ -577,10 +623,7 @@ def evaluate_folder( # noqa: C901
 
                 ok = clean_exp in clean_pred
                 status = "PASS" if ok else "FAIL"
-                print(
-                    f"{status} | File: {fname} | "
-                    f"Expected: {expected} | Got: {pred_pp}"
-                )
+                print(f"{status} | File: {fname} | Expected: {expected} | Got: {pred_pp}")
 
                 if ok:
                     num_pass += 1
@@ -623,11 +666,13 @@ def evaluate_folder( # noqa: C901
 
         # Log compare-name metrics
         if compare_results:
-            mlflow.log_metrics({
-                "compare.num_pass": compare_results["num_pass"],
-                "compare.num_fail": compare_results["num_fail"],
-                "compare.accuracy_pct": compare_results["accuracy_pct"],
-            })
+            mlflow.log_metrics(
+                {
+                    "compare.num_pass": compare_results["num_pass"],
+                    "compare.num_fail": compare_results["num_fail"],
+                    "compare.accuracy_pct": compare_results["accuracy_pct"],
+                }
+            )
 
 
 def compare_csv_and_print_results(file_csv: str):
@@ -642,9 +687,7 @@ def compare_csv_and_print_results(file_csv: str):
             audio_file = row[0]
             expected_name = row[1]
             model_transcription = row[2]
-            result = compare_support_dialect_tone(
-                model_transcription, expected_name
-            )
+            result = compare_support_dialect_tone(model_transcription, expected_name)
             if not result:
                 print(
                     f"FAIL | audio_file: {audio_file} "
@@ -678,6 +721,7 @@ def build_ctcdecoder(labels, kenlm_model_path=None, alpha=0.5, beta=1.5):
     """Build a pyctcdecode beam-search CTC decoder."""
     try:
         from pyctcdecode import build_ctcdecoder as _build
+
         return _build(
             labels,
             kenlm_model=kenlm_model_path,
@@ -691,56 +735,55 @@ def build_ctcdecoder(labels, kenlm_model_path=None, alpha=0.5, beta=1.5):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(
-        description=(
-            "Eval wav2vec2 with MLflow tracking and DVC data versioning"
-        )
+        description=("Eval wav2vec2 with MLflow tracking and DVC data versioning")
     )
     p.add_argument(
-        "--wav_dir", type=str, required=True,
+        "--wav_dir",
+        type=str,
+        required=True,
         help="Directory with .wav files (recursive)",
     )
     p.add_argument(
-        "--model_id", type=str, default=f"{MODEL_ID_DEFAULT}",
-        help=(
-            "Hub repo id (used to get model_handling.py and architecture)"
-        ),
+        "--model_id",
+        type=str,
+        default=f"{MODEL_ID_DEFAULT}",
+        help=("Hub repo id (used to get model_handling.py and architecture)"),
     )
     p.add_argument(
-        "--model_dir", type=str, default=None,
-        help=(
-            "Local model folder (containing tokenizer/config); "
-            "preferred for processor files"
-        ),
+        "--model_dir",
+        type=str,
+        default=None,
+        help=("Local model folder (containing tokenizer/config); preferred for processor files"),
     )
     p.add_argument(
-        "--local_weights", type=str, default=None,
+        "--local_weights",
+        type=str,
+        default=None,
         help="Path to local safetensors or torch checkpoint (optional)",
     )
     p.add_argument(
-        "--out_save_dir", type=str, default=None,
-        help=(
-            "Where to save processor + CSV "
-            "(defaults to model_dir or local_weights dir)"
-        ),
+        "--out_save_dir",
+        type=str,
+        default=None,
+        help=("Where to save processor + CSV (defaults to model_dir or local_weights dir)"),
     )
     p.add_argument(
-        "--run_postprocess", action="store_true",
+        "--run_postprocess",
+        action="store_true",
         help="Apply vietnamese number postprocessing",
     )
     p.add_argument("--device", type=str, default=DEVICE_DEFAULT)
     # ── MLflow arguments ──────────────────────────────────────────────────────
     p.add_argument(
-        "--mlflow_tracking_uri", type=str,
-        default=os.environ.get(
-            "MLFLOW_TRACKING_URI", MLFLOW_TRACKING_URI_DEFAULT
-        ),
+        "--mlflow_tracking_uri",
+        type=str,
+        default=os.environ.get("MLFLOW_TRACKING_URI", MLFLOW_TRACKING_URI_DEFAULT),
         help="MLflow tracking server URI.",
     )
     p.add_argument(
-        "--mlflow_experiment", type=str,
-        default=os.environ.get(
-            "MLFLOW_EXPERIMENT_NAME", MLFLOW_EXPERIMENT_DEFAULT
-        ),
+        "--mlflow_experiment",
+        type=str,
+        default=os.environ.get("MLFLOW_EXPERIMENT_NAME", MLFLOW_EXPERIMENT_DEFAULT),
         help="MLflow experiment name.",
     )
     args = p.parse_args()

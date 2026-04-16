@@ -1,4 +1,5 @@
 """Tests for evaluation utilities and model loading."""
+
 import os
 import sys
 import tempfile
@@ -29,6 +30,7 @@ class TestAudioPathHandling:
         fname = "vu_thi_yen.wav"
         # Simulate regex removal of numeric suffix and extension
         import re
+
         expected = re.sub(r"(?:_\d+)?\.wav$", "", fname)
         assert expected == "vu_thi_yen"
 
@@ -47,11 +49,7 @@ class TestCSVHandling:
 
     def test_csv_row_format(self):
         """Test expected CSV row format."""
-        sample_row = [
-            "/data/vu_thi_yen_1.wav",
-            "vu_thi_yen",
-            "vũ thị yến"
-        ]
+        sample_row = ["/data/vu_thi_yen_1.wav", "vu_thi_yen", "vũ thị yến"]
         assert len(sample_row) == 3
         assert all(isinstance(field, str) for field in sample_row)
 
@@ -106,7 +104,7 @@ class TestEvaluationWorkflow:
 
     def test_can_create_temp_csv(self):
         """Test can create temporary CSV for results."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
             csv_path = f.name
             f.write("path_wav,expected_name,transcription\n")
             f.write("/data/test.wav,test_name,test_transcription\n")
