@@ -14,7 +14,6 @@ huggingface_hub, torch, torchaudio, jiwer, safetensors, mlflow as needed).
 import argparse
 import logging
 import os
-import re
 from dataclasses import dataclass
 from importlib.machinery import SourceFileLoader
 from typing import Dict, List, Union
@@ -147,16 +146,16 @@ def prepare_datasets(
         )
 
     # read metadata: two columns (filename|transcript)
-    meta = pd.read_csv(
-        meta_csv, sep='|', header=None, names=['filename', 'transcript']
-    )
+    meta = pd.read_csv(meta_csv, sep='|', header=None, names=['filename', 'transcript'])
 
-    # basic transcript cleaning: remove common punctuation
-    pattern = r"[\,\?\.\!\-\;\:\"\'\'\"\"\ %\…]"
+    # SỬA Ở ĐÂY: KHÔNG xóa dấu cách. Chỉ xóa các ký tự đặc biệt gây nhiễu.
+    # Pattern mới loại bỏ space khỏi danh sách bị xóa
+    pattern = r"[\,\?\.\!\-\;\:\"\'\'\"\"\%\…]"
     meta['transcript'] = (
         meta['transcript']
         .str.lower()
         .str.replace(pattern, '', regex=True)
+        .str.replace(r'\s+', ' ', regex=True)  # Gộp nhiều space thành 1 space
         .str.strip()
     )
 
@@ -210,14 +209,16 @@ def load_model_and_processor(
         ModelClass = getattr(model_loader, 'Wav2Vec2ForCTC', None)
         if ModelClass is not None:
             model = ModelClass.from_pretrained(
-                model_id, trust_remote_code=trust_remote_code
+                model_id, trust_remote_code=trust_remote_code,
+                ignore_mismatched_sizes=True  # <--- THÊM DÒNG NÀY
             )
         else:
             from transformers import AutoModelForCTC
-            model = AutoModelForCTC.from_pretrained(model_id)
+            model = AutoModelForCTC.from_pretrained(model_id,
+            ignore_mismatched_sizes=True ) # <--- THÊM DÒNG NÀY)
     else:
         from transformers import AutoModelForCTC
-        model = AutoModelForCTC.from_pretrained(model_id)
+        model = AutoModelForCTC.from_pretrained(model_id, ignore_mismatched_sizes=True ) # <--- THÊM DÒNG NÀY)
 
     # move model to selected device (cuda if available)
     if device is None:
@@ -317,12 +318,13 @@ def build_training_args(
 ) -> TrainingArguments:
     return TrainingArguments(
         output_dir=output_dir,
+        # overwrite_output_dir=True,
         per_device_train_batch_size=per_device_train_batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,
         learning_rate=learning_rate,
         lr_scheduler_type="linear",
-        warmup_ratio=0.1,
-        weight_decay=0.005,
+        warmup_ratio=0.15,
+        weight_decay=0.01,
         num_train_epochs=num_train_epochs,
         eval_steps=500,
         save_steps=500,
@@ -353,7 +355,7 @@ def prepare_batch(batch, processor_ref):
 
     transcript = batch['transcript']
     word_delimiter = processor_ref.tokenizer.word_delimiter_token
-    if word_delimiter and word_delimiter != " ":
+    if word_delimiter is not None:
         transcript = transcript.replace(" ", word_delimiter)
 
     lbl = processor_ref.tokenizer(transcript).input_ids
@@ -361,7 +363,7 @@ def prepare_batch(batch, processor_ref):
 
 
 # Run end-to-end training with sensible defaults
-def run_training(
+def run_training( # noqa: C901
     extracted_dir: str = EXTRACTED_DIR,
     meta_csv: str = META_CSV,
     model_id: str = MODEL_ID_DEFAULT,
@@ -429,6 +431,8 @@ def run_training(
             num_train_epochs=num_train_epochs,
         )
 
+
+        from transformers import EarlyStoppingCallback
         # ── Use patched MLflowTrainer ─────────────────────────────────────────
         trainer = MLflowTrainer(
             model=model,
@@ -437,9 +441,14 @@ def run_training(
             eval_dataset=eval_prepped,
             data_collator=data_collator,
             compute_metrics=lambda pred: compute_metrics(pred, processor),
+            callbacks=[EarlyStoppingCallback(early_stopping_patience=3)] # Rất quan trọng!
         )
 
-        trainer.train()
+        resume_from_checkpoint = None
+        if os.path.isdir(output_dir) and len(os.listdir(output_dir)) > 0:
+            resume_from_checkpoint = False # Trainer sẽ tự tìm checkpoint mới nhất trong output_dir
+
+        trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         eval_results = trainer.evaluate()
 
         # ── Log final eval metrics ────────────────────────────────────────────

@@ -14,10 +14,10 @@ Experiment results are tracked with MLflow; dataset provenance is
 managed via DVC.
 
 Usage example:
-python eval_wav2vec2.py \\
-  --wav_dir /content/person_name_500/ \\
-  --model_dir /content/wav2vec2-finetuned \\
-  --local_weights /content/wav2vec2-finetuned/model.safetensors \\
+python eval_wav2vec2.py \
+  --wav_dir /content/person_name_500/ \
+  --model_dir /content/wav2vec2-finetuned \
+  --local_weights /content/wav2vec2-finetuned/model.safetensors \
   --run_postprocess
 """
 import argparse
@@ -67,9 +67,9 @@ except Exception:
     unidecode = None
 
 try:
-    from jiwer import wer
+    from jiwer import cer, wer
 except Exception:
-    wer = None
+    wer = cer = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -123,18 +123,9 @@ def remove_noise(input_file, output_file):
 # ------------------ Vietnamese normalization helpers ------------------
 def vietnamese_number_converter(text):
     number_mapping = {
-        "không": "0",
-        "hông": "0",
-        "một": "1",
-        "mốt": "1",
-        "hai": "2",
-        "ba": "3",
-        "bốn": "4",
-        "năm": "5",
-        "sáu": "6",
-        "bảy": "7",
-        "tám": "8",
-        "chín": "9",
+        "không": "0", "hông": "0", "một": "1", "mốt": "1",
+        "hai": "2", "ba": "3", "bốn": "4", "năm": "5",
+        "sáu": "6", "bảy": "7", "tám": "8", "chín": "9",
     }
     if not text:
         return text
@@ -223,32 +214,39 @@ def compare_support_dialect_tone(s1: str, s2: str) -> bool:
     return s2_clean in s1_clean
 
 
-# ------------------ Transcription ------------------
-def transcribe_wav2vec(audio_path, processor_ref, model_ref, device, decoder=None):
-    if librosa is None:
-        raise RuntimeError("librosa is required for audio loading")
+def normalize_for_jiwer(text: str) -> str:
+    """Chuẩn hóa văn bản để đánh giá WER/CER công bằng nhất."""
+    if not text:
+        return ""
+    text = text.lower()
+
+    # Đưa về tiếng Việt không dấu
+    if unidecode:
+        text = unidecode(text)
+    else:
+        text = convert_vietnamese_diacritics(text)
+
+    # Xóa gạch dưới, giữ lại chữ và số
+    text = text.replace("_", " ")
+    text = re.sub(r'[^a-z0-9\s]', '', text)
+
+    # Xóa khoảng trắng thừa
+    return " ".join(text.split())
+
+
+def transcribe_wav2vec(audio_path, processor_ref, model_ref, device):
     audio_arr, sr = librosa.load(audio_path, sr=16000)
-    inputs = processor_ref(
-        audio_arr, sampling_rate=sr, return_tensors="pt", padding=True
-    )
+    inputs = processor_ref(audio_arr, sampling_rate=sr, return_tensors="pt")
     input_values = inputs.input_values.to(device)
+
     with torch.no_grad():
         logits = model_ref(input_values).logits
-    if decoder is not None:
-        logits_np = logits.cpu().numpy()[0]
-        return decoder.decode(logits_np)
 
-    # Nếu dùng Greedy (argmax)
     pred_ids = torch.argmax(logits, dim=-1)
+    # Dùng output_word_delimiters=True nếu muốn kiểm soát thủ công,
+    # nhưng thông thường cứ để mặc định và strip()
     transcription = processor_ref.batch_decode(pred_ids)[0]
-    
-    # QUAN TRỌNG: Thay thế ký tự ngắt từ đặc biệt thành dấu cách chuẩn
-    # Thường là '|' hoặc ký tự định nghĩa trong tokenizer
-    word_delimiter = processor_ref.tokenizer.word_delimiter_token
-    if word_delimiter:
-        transcription = transcription.replace(word_delimiter, " ")
-        
-    return " ".join(transcription.split()) # Xóa khoảng trắng thừa
+    return transcription.strip()
 
 
 # ------------------ Checkpoint loading helper ------------------
@@ -434,24 +432,28 @@ def _preprocess_wav(wav, norm_path):
 
 
 def _print_wer_summary(num_pass, num_test, refs, hyps):
-    """Print pass-rate and optionally jiwer WER."""
+    """Print pass-rate and optionally jiwer WER & CER."""
     if num_test == 0:
         print("\u274c No .wav files found to evaluate.")
-        return
+        return None, None
+
     print(
         f"Total pass: {num_pass}/{num_test} "
         f"~ {num_pass * 100 / num_test:.2f}%"
     )
-    if wer is None:
-        logger.warning("jiwer not installed; cannot compute WER.")
-        return
+    if wer is None or cer is None:
+        logger.warning("jiwer not installed; cannot compute WER/CER.")
+        return None, None
+
     try:
         wer_score = wer(refs, hyps)
-        print(f"JIwer WER (refs vs hyps): {wer_score:.4f}")
-        return wer_score
+        cer_score = cer(refs, hyps)
+        print(f"JIwer WER: {wer_score:.4f}")
+        print(f"JIwer CER: {cer_score:.4f}")
+        return wer_score, cer_score
     except Exception as e:
-        print("Could not compute jiwer WER:", e)
-        return None
+        print("Could not compute jiwer WER/CER:", e)
+        return None, None
 
 
 def _resolve_output_dir(model_dir, local_weights, out_save_dir):
@@ -464,7 +466,7 @@ def _resolve_output_dir(model_dir, local_weights, out_save_dir):
     return "./out_eval"
 
 
-def evaluate_folder(
+def evaluate_folder( # noqa: C901
     wav_dir,
     model_id=None,
     model_dir=None,
@@ -509,7 +511,7 @@ def evaluate_folder(
         except Exception:
             pass
 
-        # THAY THẾ toàn bộ khối "NẠP MODEL ĐỈNH CAO" bằng:
+        # Nạp Model
         model, processor = _load_model_and_processor(model_id, model_dir)
         model.eval()
         _load_local_weights(model, local_weights)
@@ -531,19 +533,19 @@ def evaluate_folder(
             pattern = os.path.join(wav_dir, "**", "*.wav")
             for wav in glob.glob(pattern, recursive=True):
                 fname = os.path.basename(wav)
-                
+
                 # 1. Lấy tên gốc từ file
-                expected_raw = re.sub(r"(?:_\d+)?\.wav$", "", fname) 
-                
-                # 2. Quan trọng: Chuyển gạch dưới thành dấu cách để khớp với format của AI
-                expected_for_wer = expected_raw.replace("_", " ")
+                expected = re.sub(r"(?:_\d+)?\.wav$", "", fname)
+
+                # 2. Xử lý khoảng trắng cho expected
+                expected_for_wer = expected.replace("_", " ")
+
                 tmpdir = "tmp"
                 os.makedirs(tmpdir, exist_ok=True)
                 norm_path = os.path.join(
                     tmpdir, f"{uuid.uuid4()}_norm.wav"
                 )
                 denoise_path = _preprocess_wav(wav, norm_path)
-
                 try:
                     pred = transcribe_wav2vec(
                         denoise_path, processor, model, device
@@ -562,6 +564,7 @@ def evaluate_folder(
                 writer.writerow([wav, expected, pred_pp])
                 csv_file.flush()
 
+                # So khớp lấy Pass/Fail
                 if unidecode:
                     clean_pred = unidecode(pred_pp.lower())
                     clean_exp = unidecode(expected.lower())
@@ -578,26 +581,35 @@ def evaluate_folder(
                     f"{status} | File: {fname} | "
                     f"Expected: {expected} | Got: {pred_pp}"
                 )
+
                 if ok:
                     num_pass += 1
                 num_test += 1
 
-                refs.append(expected.lower())
-                hyps.append(pred_pp.lower())
+                # 3. Chuẩn hóa chuỗi trước khi đưa vào hàm đếm WER/CER
+                norm_ref = normalize_for_jiwer(expected_for_wer)
+                norm_hyp = normalize_for_jiwer(pred_pp)
+
+                refs.append(norm_ref)
+                hyps.append(norm_hyp)
 
         print("-" * 30)
-        wer_score = _print_wer_summary(num_pass, num_test, refs, hyps)
+        wer_score, cer_score = _print_wer_summary(num_pass, num_test, refs, hyps)
 
         # ── Log metrics to MLflow ─────────────────────────────────────────────
         if num_test > 0:
             pass_rate = num_pass * 100 / num_test
-            mlflow.log_metrics({
+            metrics_dict = {
                 "eval.num_files": num_test,
                 "eval.num_pass": num_pass,
                 "eval.pass_rate_pct": pass_rate,
-            })
+            }
             if wer_score is not None:
-                mlflow.log_metric("eval.wer", wer_score)
+                metrics_dict["eval.wer"] = wer_score
+            if cer_score is not None:
+                metrics_dict["eval.cer"] = cer_score
+
+            mlflow.log_metrics(metrics_dict)
 
         # Log CSV as MLflow artifact
         try:

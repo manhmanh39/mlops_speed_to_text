@@ -1,0 +1,16 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/1fbc2f22f80b4aaca3d1c10f9bb5118a/artifacts
+deleted_time: 1776309080761
+end_time: 1776308532573
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: deleted
+run_id: 1fbc2f22f80b4aaca3d1c10f9bb5118a
+run_name: abundant-hawk-848
+run_uuid: 1fbc2f22f80b4aaca3d1c10f9bb5118a
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776308532233
+status: 4
+tags: []
+user_id: root

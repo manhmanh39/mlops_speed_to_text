@@ -1,8 +1,9 @@
 artifact_uri: mlflow-artifacts:/179421198538450748/dfcbcd417e794d1fb1f35964f403dd5d/artifacts
+deleted_time: 1776309080763
 end_time: 1776253872409
 entry_point_name: ''
 experiment_id: '179421198538450748'
-lifecycle_stage: active
+lifecycle_stage: deleted
 run_id: dfcbcd417e794d1fb1f35964f403dd5d
 run_name: bedecked-dolphin-560
 run_uuid: dfcbcd417e794d1fb1f35964f403dd5d

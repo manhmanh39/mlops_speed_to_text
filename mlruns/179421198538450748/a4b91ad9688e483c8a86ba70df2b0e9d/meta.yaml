@@ -1,0 +1,16 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/a4b91ad9688e483c8a86ba70df2b0e9d/artifacts
+deleted_time: 1776309080758
+end_time: 1776308838492
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: deleted
+run_id: a4b91ad9688e483c8a86ba70df2b0e9d
+run_name: spiffy-ant-629
+run_uuid: a4b91ad9688e483c8a86ba70df2b0e9d
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776308706820
+status: 4
+tags: []
+user_id: root
