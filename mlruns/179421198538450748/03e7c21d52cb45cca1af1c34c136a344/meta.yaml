@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/03e7c21d52cb45cca1af1c34c136a344/artifacts
+end_time: 1776341630175
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: active
+run_id: 03e7c21d52cb45cca1af1c34c136a344
+run_name: hilarious-swan-621
+run_uuid: 03e7c21d52cb45cca1af1c34c136a344
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776341630157
+status: 4
+tags: []
+user_id: root

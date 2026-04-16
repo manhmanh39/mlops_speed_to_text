@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/0c36e69abf024c37a04ac5287436bd44/artifacts
+end_time: 1776342007029
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: active
+run_id: 0c36e69abf024c37a04ac5287436bd44
+run_name: debonair-pig-711
+run_uuid: 0c36e69abf024c37a04ac5287436bd44
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776342007012
+status: 4
+tags: []
+user_id: root

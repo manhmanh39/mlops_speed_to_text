@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: wav2vec2-api
 spec:
-  replicas: 2 
+  replicas: 2
   strategy:
     type: RollingUpdate
   selector:
@@ -17,11 +17,20 @@ spec:
       containers:
       - name: asr-container
         image: ghcr.io/manhmanh39/mlops_speed_to_text:latest
+        imagePullPolicy: IfNotPresent
+        command: ["python"]
+        args: ["app.py"]
+        env:
+        - name: MLFLOW_TRACKING_URI
+          value: "http://192.168.49.1:5000"
+        - name: DATA_PATH
+          value: "/content/data_train_70.6/metadata.csv"
         ports:
         - containerPort: 8000
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-          initialDelaySeconds: 15
-          periodSeconds: 10
+        volumeMounts:
+        - name: data-storage
+          mountPath: /content/data_train_70.6
+      volumes:
+      - name: data-storage
+        hostPath:
+          path: /home/embiekhochiu/manh_code/mlops_speed_to_text/data_train_70.6

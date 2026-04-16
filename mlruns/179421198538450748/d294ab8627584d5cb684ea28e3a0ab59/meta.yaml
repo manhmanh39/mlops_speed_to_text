@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/d294ab8627584d5cb684ea28e3a0ab59/artifacts
+end_time: 1776341914967
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: active
+run_id: d294ab8627584d5cb684ea28e3a0ab59
+run_name: awesome-gnu-898
+run_uuid: d294ab8627584d5cb684ea28e3a0ab59
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776341914949
+status: 4
+tags: []
+user_id: root

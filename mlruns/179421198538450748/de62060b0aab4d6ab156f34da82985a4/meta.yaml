@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/179421198538450748/de62060b0aab4d6ab156f34da82985a4/artifacts
+end_time: 1776342237612
+entry_point_name: ''
+experiment_id: '179421198538450748'
+lifecycle_stage: active
+run_id: de62060b0aab4d6ab156f34da82985a4
+run_name: luxuriant-rook-830
+run_uuid: de62060b0aab4d6ab156f34da82985a4
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776342237314
+status: 4
+tags: []
+user_id: root
