@@ -1,6 +1,0 @@
-artifact_location: mlflow-artifacts:/989573568948490240
-creation_time: 1776176637535
-experiment_id: '989573568948490240'
-last_update_time: 1776176637535
-lifecycle_stage: active
-name: wav2vec2-vietnamese-api
