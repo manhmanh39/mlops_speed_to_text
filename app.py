@@ -1,112 +1,90 @@
+import logging
 import os
 import shutil
-import urllib.request
-import zipfile
+import uuid
 
 import mlflow
-import mlflow.pytorch
 import torch
 from fastapi import FastAPI, HTTPException, UploadFile
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 
+# Import logic từ file eval - Đảm bảo transcribe_wav2vec dùng Greedy Search
 from eval_wav2vec2 import (
+    MODEL_ID_DEFAULT,
     _load_local_weights,
     _load_model_and_processor,
-    build_ctcdecoder,
+    _preprocess_wav,
     transcribe_wav2vec,
     vietnamese_number_converter,
 )
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Vietnamese Name ASR API",
-    description="MLOps Final Project - backed by MLflow model registry",
+    description="MLOps Final Project - Greedy Search (No KenLM)",
 )
 
-# --- MONITORING ---
 instrumentator = Instrumentator().instrument(app)
 
-MODEL_ID = "nguyenvulebinh/wav2vec2-large-vi-vlsp2020"
+# Configuration
+MODEL_ID = os.environ.get("MODEL_ID", MODEL_ID_DEFAULT)
 MODEL_DIR = "/app/models/wav2vec2-finetuned"
 LOCAL_WEIGHTS = "/app/models/wav2vec2-finetuned/model.safetensors"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# MLflow settings (override via environment variables)
-MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow:5000")
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://mlflow-server:5000")
 MLFLOW_EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT_NAME", "wav2vec2-vietnamese-api")
 
 model = None
 processor = None
-decoder = None
 
 
 def _setup_mlflow():
-    """Configure MLflow for inference logging."""
-    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-    mlflow.set_experiment(MLFLOW_EXPERIMENT)
+    try:
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(MLFLOW_EXPERIMENT)
+    except Exception as e:
+        logger.warning(f"Không thể kết nối MLflow: {e}")
 
 
 @app.on_event("startup")
-async def load_model():
-    global model, processor, decoder
+async def load_model_logic():
+    global model, processor
     try:
         _setup_mlflow()
+        logger.info(f">>> Đang nạp model (Greedy) từ: {MODEL_DIR} <<<")
 
+        # 1. Nạp Model & Processor theo logic eval
         model, processor = _load_model_and_processor(MODEL_ID, MODEL_DIR)
-        _load_local_weights(model, LOCAL_WEIGHTS)
+
+        # 2. Nạp trọng số finetuned
+        if _load_local_weights(model, LOCAL_WEIGHTS):
+            logger.info(">>> Đã nạp tạ finetuned thành công! <<<")
+        else:
+            logger.warning(">>> Không tìm thấy tạ local, dùng trọng số Hub! <<<")
+
         model.to(DEVICE)
         model.eval()
 
-        # --- LOG MODEL LOAD EVENT TO MLFLOW ---
-        with mlflow.start_run(run_name="api-startup"):
-            mlflow.set_tag("event", "model_loaded")
-            mlflow.set_tag("device", DEVICE)
-            mlflow.log_param("model_id", MODEL_ID)
-            mlflow.log_param("model_dir", MODEL_DIR)
-            mlflow.log_param("local_weights", LOCAL_WEIGHTS)
+        # Log sự kiện startup lên MLflow
+        try:
+            with mlflow.start_run(run_name="api-startup"):
+                mlflow.set_tag("mode", "greedy_inference")
+                mlflow.log_param("device", DEVICE)
+        except Exception:
+            pass
 
-        # --- NẠP KENLM DECODER ---
-        lm_dir = "/app/models/lm"
-        os.makedirs(lm_dir, exist_ok=True)
-        lm_path = os.path.join(lm_dir, "vi_lm_4grams.bin")
-
-        if not os.path.exists(lm_path):
-            print("Downloading KenLM...")
-            zip_path = os.path.join(lm_dir, "lm.zip")
-            urllib.request.urlretrieve(
-                "https://huggingface.co/nguyenvulebinh/wav2vec2-base-vietnamese-250h"
-                "/resolve/main/vi_lm_4grams.bin.zip",
-                zip_path,
-            )
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(lm_dir)
-            os.remove(zip_path)
-
-        vocab_dict = processor.tokenizer.get_vocab()
-        sorted_vocab = sorted(vocab_dict.items(), key=lambda x: x[1])
-        vocab_list = [item[0] for item in sorted_vocab]
-        if len(vocab_list) > model.config.vocab_size:
-            vocab_list = vocab_list[: model.config.vocab_size]
-        if processor.tokenizer.pad_token in vocab_list:
-            vocab_list[vocab_list.index(processor.tokenizer.pad_token)] = ""
-        word_delim = processor.tokenizer.word_delimiter_token
-        if word_delim in vocab_list:
-            vocab_list[vocab_list.index(word_delim)] = " "
-
-        decoder = build_ctcdecoder(
-            labels=vocab_list,
-            kenlm_model_path=lm_path,
-            alpha=0.5,
-            beta=1.5,
-        )
-        print(f"--- Model and KenLM loaded successfully on {DEVICE} ---")
+        logger.info(f"--- API SẴN SÀNG TRÊN {DEVICE} ---")
     except Exception as e:
-        print(f"--- Error loading model: {e} ---")
+        logger.error(f"--- LỖI KHỞI ĐỘNG: {e} ---")
 
 
 @app.on_event("startup")
-async def startup_event():
-    await load_model()
+async def setup_instrumentation():
     instrumentator.expose(app)
 
 
@@ -119,24 +97,32 @@ class PredictionResponse(BaseModel):
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile):
     if not file.filename.endswith(".wav"):
-        raise HTTPException(status_code=400, detail="Only .wav files are supported")
+        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file .wav")
 
-    temp_path = f"temp_{file.filename}"
-    with open(temp_path, "wb") as buffer:
+    request_id = str(uuid.uuid4())
+    raw_path = f"raw_{request_id}_{file.filename}"
+    norm_path = f"norm_{request_id}_{file.filename}"
+
+    with open(raw_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        raw_text = transcribe_wav2vec(temp_path, processor, model, DEVICE, decoder)
+        # 1. Tiền xử lý (Denoise + Normalize)
+        final_audio = _preprocess_wav(raw_path, norm_path)
+
+        # 2. Nhận diện (Sử dụng hàm từ eval_wav2vec2)
+        raw_text = transcribe_wav2vec(final_audio, processor, model, DEVICE)
+
+        # 3. Chuẩn hóa số tiếng Việt
         clean_text = vietnamese_number_converter(raw_text)
 
-        # Log inference to MLflow (async-safe: use a short-lived run)
+        # 4. Log kết quả inference
         try:
-            with mlflow.start_run(run_name="inference", nested=True):
-                mlflow.set_tag("filename", file.filename)
-                mlflow.log_param("raw_transcription", raw_text[:250])
-                mlflow.log_param("post_processed", clean_text[:250])
+            with mlflow.start_run(run_name="inference_call", nested=True):
+                mlflow.log_param("file", file.filename)
+                mlflow.log_metric("text_len", len(raw_text))
         except Exception:
-            pass  # Never block the API response for MLflow logging
+            pass
 
         return {
             "filename": file.filename,
@@ -144,20 +130,20 @@ async def predict(file: UploadFile):
             "post_processed": clean_text,
         }
     except Exception as e:
+        logger.exception("Inference thất bại")
         raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        for p in [raw_path, norm_path]:
+            if os.path.exists(p):
+                os.remove(p)
 
 
 @app.get("/health")
 async def health_check():
-    if model is not None and decoder is not None:
-        return {"status": "healthy", "device": str(DEVICE)}
-    raise HTTPException(status_code=503, detail="Model or KenLM is still loading")
-
+    if model is not None:
+        return {"status": "healthy", "device": DEVICE}
+    return {"status": "loading"}, 503
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,0 +1,7 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'wav2vec2-api'
+    static_configs:
+      - targets: ['wav2vec2-api:8000']

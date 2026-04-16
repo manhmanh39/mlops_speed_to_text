@@ -1,21 +1,11 @@
-# version: '3.8'
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Services
-#   mlflow          – experiment tracking UI + REST API  (port 5000)
-#   wav2vec2-train  – fine-tuning job  (GPU)
-#   wav2vec2-eval   – evaluation job   (GPU)
-#   wav2vec2-api    – FastAPI inference server          (port 8000)
-# ──────────────────────────────────────────────────────────────────────────────
+#version: '3.8'
 
 services:
-  # --------------------------------------------------------------------------
-  # MLflow Tracking Server
-  # --------------------------------------------------------------------------
+  # 1. MLflow Tracking
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.13.0
     container_name: mlflow-server
-    user: "root"  # Ép quyền cao nhất để ghi file không bị lỗi
+    user: "root"
     ports:
       - "5000:5000"
     volumes:
@@ -25,9 +15,7 @@ services:
     networks:
       - wav2vec2-net
 
-  # --------------------------------------------------------------------------
-  # Training Job (Greedy + MLflow)
-  # --------------------------------------------------------------------------
+  # 2. Training Job
   wav2vec2-train:
     build: .
     image: wav2vec2-vi:latest
@@ -58,9 +46,7 @@ services:
     networks:
       - wav2vec2-net
 
-  # --------------------------------------------------------------------------
-  # Evaluation Job (Chấm điểm Model)
-  # --------------------------------------------------------------------------
+  # 3. Evaluation Job
   wav2vec2-eval:
     build: .
     image: wav2vec2-vi:latest
@@ -76,11 +62,11 @@ services:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     command: >
       python eval_wav2vec2.py
-        --model_dir /app/models/wav2vec2-finetuned
-        --local_weights /app/models/wav2vec2-finetuned/model.safetensors
-        --wav_dir /app/person_name_500
-        --out_save_dir /app/outputs
-        --run_postprocess
+      --model_dir /app/models/wav2vec2-finetuned
+      --local_weights /app/models/wav2vec2-finetuned/model.safetensors
+      --wav_dir /app/person_name_500
+      --out_save_dir /app/outputs
+      --run_postprocess
     deploy:
       resources:
         reservations:
@@ -91,9 +77,7 @@ services:
     networks:
       - wav2vec2-net
 
-  # --------------------------------------------------------------------------
-  # FastAPI Inference Server
-  # --------------------------------------------------------------------------
+  # 4. FastAPI Inference Server (API Hàng Real)
   wav2vec2-api:
     build: .
     container_name: wav2vec2-api
@@ -115,6 +99,44 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+
+  # 5. Streamlit Frontend UI
+  frontend-ui:
+    build: .
+    container_name: frontend-ui
+    ports:
+      - "8501:8501"
+    depends_on:
+      - wav2vec2-api
+    command: streamlit run frontend.py --server.port=8501 --server.address=0.0.0.0
+    networks:
+      - wav2vec2-net
+
+  # 6. Prometheus (Gom Data)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - wav2vec2-net
+    depends_on:
+      - wav2vec2-api
+
+  # 7. Grafana (Vẽ Biểu Đồ Thật)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - wav2vec2-net
+    depends_on:
+      - prometheus
 
 networks:
   wav2vec2-net:

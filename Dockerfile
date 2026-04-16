@@ -28,6 +28,7 @@ COPY train_wav2vec2.py eval_wav2vec2.py ./
 COPY pyproject.toml pytest.ini ./
 COPY tests/ ./tests/
 COPY train_wav2vec2.py eval_wav2vec2.py app.py ./
+COPY train_wav2vec2.py eval_wav2vec2.py app.py frontend.py ./
 
 # Linting stage
 RUN echo "Running ruff linting..." && ruff check . || echo "Warning: ruff checks found issues"

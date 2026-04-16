@@ -1,0 +1,15 @@
+artifact_uri: mlflow-artifacts:/343600767876820782/e9c8938be46945a5bf05566d1af17a00/artifacts
+end_time: 1776335020362
+entry_point_name: ''
+experiment_id: '343600767876820782'
+lifecycle_stage: active
+run_id: e9c8938be46945a5bf05566d1af17a00
+run_name: sassy-colt-979
+run_uuid: e9c8938be46945a5bf05566d1af17a00
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1776334643765
+status: 3
+tags: []
+user_id: root
