@@ -1,5 +1,5 @@
 artifact_uri: mlflow-artifacts:/179421198538450748/9050b6875da34546a1ba02d6eff21a35/artifacts
-end_time: null
+end_time: 1776343880186
 entry_point_name: ''
 experiment_id: '179421198538450748'
 lifecycle_stage: active
@@ -10,6 +10,6 @@ source_name: ''
 source_type: 4
 source_version: ''
 start_time: 1776334643912
-status: 1
+status: 3
 tags: []
 user_id: root
