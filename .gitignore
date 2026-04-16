@@ -1,23 +1,25 @@
-data_train_70.6/
-person_name_500/
-outputs/
-# Thư mục Data
-data_train_70.6/
-person_name_500/
-data/
+# Binary files
+minikube-linux-amd64
 
-# Thư mục Model và Output
+# Machine Learning Data & Models
+data_train_70.6/
 models/
+mlruns/
+person_name_500/
 outputs/
-lm/
-
-# Bỏ qua các file âm thanh và weights nếu bị rớt ra ngoài
 *.wav
-.env
-*.safetensors
-*.bin
+*.mp3
 
-# Bộ nhớ tạm của Python
+# Python & IDE
 __pycache__/
-/data_train_70.6
-/person_name_500
+*.py[cod]
+*$py.class
+venv/
+.env
+.ruff_cache/
+.pytest_cache/
+.vscode/
+
+# DVC local (giữ lại các file .dvc, ignore cache)
+.dvc/cache/
+.dvc/tmp/
