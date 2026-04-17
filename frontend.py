@@ -7,24 +7,177 @@ import streamlit as st
 
 st.set_page_config(page_title="Wav2Vec2 MLOps Dashboard", page_icon="🎙️", layout="wide")
 
+# 1. BỘ CHỌN GIAO DIỆN
+# --- THÊM LOGO VÀ TÊN NHÓM ---
+st.sidebar.image("Logo-NEU.png", width=150) 
+
+# In đậm tên nhóm
+st.sidebar.markdown("### Group 7 - DSEB65B")
+st.sidebar.markdown("###### Nguyễn Thị Mai Anh")
+st.sidebar.markdown("###### Phạm Thị Ngọc Ánh")
+st.sidebar.markdown("###### Nguyễn Thanh Mơ")
+st.sidebar.markdown("###### Nguyễn Khánh Huyền")
+st.sidebar.markdown("###### Nguyễn Thị Hương Giang")
+st.sidebar.markdown("###### Lê Lan Hương")
+st.sidebar.markdown("---")
+theme = st.sidebar.radio("🎨 Chọn giao diện", ["Tối (Dark)", "Sáng (Light)"])
+
+# 2. THIẾT LẬP BẢNG MÀU ĐỘNG
+if theme == "Tối (Dark)":
+    colors = {
+        "main_bg": "#111217",
+        "card_bg": "#1e1e24",
+        "text_main": "#ffffff",
+        "text_sub": "#d1d5db",
+        "border": "#444444",
+        "btn_bg": "#2b2c36",
+        "btn_text": "#ffffff", 
+        "dropzone_bg": "#1e1e24"
+    }
+else:
+    colors = {
+        "main_bg": "#ffffff",
+        "card_bg": "#f8f9fa",
+        "text_main": "#111217",
+        "text_sub": "#4b4b4b",
+        "border": "#cccccc",
+        "btn_bg": "#ffffff",
+        "btn_text": "#111217", 
+        "dropzone_bg": "#f0f2f6"
+    }
+
 # Địa chỉ các service trong mạng Docker
 PROMETHEUS_URL = "http://prometheus:9090/api/v1/query"
 PROMETHEUS_RANGE_URL = "http://prometheus:9090/api/v1/query_range"
-API_URL = "http://wav2vec2-api:8000/predict"
+#API_URL = "http://wav2vec2-api:8000/predict"
+API_URL = "http://localhost:8000/predict"
 
-# CSS tùy chỉnh
+# 3. CSS ÁP DỤNG MÀU ĐỘNG & SỬA LỖI GIAO DIỆN
 st.markdown(
-    """
+    f"""
     <style>
-    .stApp { background-color: #111217; color: white; }
-    div[data-testid="metric-container"] {
-        background-color: #1e1e24; border: 1px solid #333; padding: 15px; border-radius: 5px;
-    }
+    /* Nền tổng thể và màu chữ chính */
+    .stApp {{ 
+        background-color: {colors['main_bg']}; 
+        color: {colors['text_main']}; 
+    }}
+    
+    /* Đồng bộ màu Sidebar (giúp sidebar không bị trắng khi ở chế độ Dark) */
+    [data-testid="stSidebar"] {{
+        background-color: {colors['card_bg']} !important;
+    }}
+    
+    /* Chữ nhỏ, label, caption (Không áp dụng cho các hộp thông báo st.success/st.info) */
+    div:not([data-testid="stAlert"]) > [data-testid="stMarkdownContainer"] p, 
+    [data-testid="stCaptionContainer"] p, 
+    label {{
+        color: {colors['text_sub']} !important; 
+    }}
+    
+    /* Trả lại màu chữ mặc định cho các hộp thông báo st.success, st.info để dễ đọc */
+    [data-testid="stAlert"] [data-testid="stMarkdownContainer"] p {{
+        color: inherit !important;
+    }}
+    
+    /* Tên file sau khi tải lên */
+    [data-testid="stUploadedFile"] p,
+    [data-testid="stUploadedFile"] span {{
+        color: {colors['text_main']} !important;
+    }}
+
+    /* --- NÚT BẤM CHUNG (Refresh, Run Inference...) --- */
+    div[data-testid="stButton"] button {{
+        background-color: {colors['btn_bg']} !important;
+        border: 1px solid {colors['border']} !important;
+    }}
+    div[data-testid="stButton"] button,
+    div[data-testid="stButton"] button * {{
+        color: {colors['btn_text']} !important;
+    }}
+
+    /* --- SỬA LỖI VÙNG KÉO THẢ VÀ NÚT UPLOAD --- */
+    [data-testid="stFileUploadDropzone"] {{
+        background-color: {colors['dropzone_bg']} !important;
+        border: 1px dashed {colors['border']} !important;
+    }}
+    
+    /* Chữ "Drag and drop..." và giới hạn dung lượng */
+    [data-testid="stFileUploadDropzone"] > div > div > span,
+    [data-testid="stFileUploadDropzone"] > div > div > small {{
+        color: {colors['text_sub']} !important;
+    }}
+
+    /* KHUNG NGOÀI NÚT UPLOAD: LUÔN CỐ ĐỊNH NỀN SÁNG */
+    div[data-testid="stFileUploader"] button {{
+        background-color: #ffffff !important;
+        border: 1px solid #cccccc !important;
+        border-radius: 5px !important;
+    }}
+    
+    /* ÉP TẤT CẢ CÁC THẺ CON BÊN TRONG NÚT LÀ MÀU ĐEN */
+    div[data-testid="stFileUploader"] button p,
+    div[data-testid="stFileUploader"] button span,
+    div[data-testid="stFileUploader"] button div,
+    div[data-testid="stFileUploader"] button * {{
+        color: #000000 !important;
+        font-weight: 600 !important;
+    }}
+
+    /* --- HIỆU ỨNG HOVER CHO NÚT UPLOAD --- */
+    div[data-testid="stFileUploader"] button:hover {{
+        background-color: #f0f2f6 !important;
+        border-color: #ff4b4b !important; /* Đổi viền sang đỏ khi hover cho đồng bộ */
+    }}
+    
+    div[data-testid="stFileUploader"] button:hover p,
+    div[data-testid="stFileUploader"] button:hover span,
+    div[data-testid="stFileUploader"] button:hover div,
+    div[data-testid="stFileUploader"] button:hover * {{
+        color: #ff4b4b !important; 
+    }}
+
+    /* Hover cho nút chung */
+    div[data-testid="stButton"] button:hover {{
+        background-color: #ff4b4b !important;
+        border-color: #ff4b4b !important;
+    }}
+    div[data-testid="stButton"] button:hover,
+    div[data-testid="stButton"] button:hover * {{
+        color: #ffffff !important;
+    }}
+
+    /* --- Box chứa Metrics Dashboard --- */
+    div[data-testid="metric-container"] {{
+        background-color: {colors['card_bg']}; 
+        border: 1px solid {colors['border']}; 
+        padding: 15px; 
+        border-radius: 5px;
+    }}
+    div[data-testid="stMetricLabel"] > div {{
+        color: {colors['text_sub']} !important; 
+    }}
+    div[data-testid="stMetricValue"] > div {{
+        color: {colors['text_main']} !important; 
+    }}
+
+    /* Màu chữ cho Tabs */
+    .stTabs [data-baseweb="tab-list"] button {{
+        color: {colors['text_sub']};
+    }}
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{
+        color: #ff4b4b;
+    }}
+    
+    /* Màu chữ của bộ chọn Radio trong Sidebar */
+    [data-testid="stSidebar"] [data-testid="stRadio"] label,
+    [data-testid="stSidebar"] [data-testid="stRadio"] p,
+    [data-testid="stSidebar"] [data-testid="stRadio"] div {{
+        color: {colors['text_main']} !important;
+    }}
     </style>
 """,
     unsafe_allow_html=True,
 )
-
 
 # --- Helper Functions for Prometheus ---
 def get_prom_value(query):
@@ -72,20 +225,28 @@ with tab_inference:
         if st.button("🚀 Chạy Nhận Diện (Inference)", type="primary"):
             with st.spinner("Model đang xử lý..."):
                 try:
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "audio/wav")}
                     start_time = time.time()
-                    response = requests.post(API_URL, files=files)
+                    
+                    # === ĐOẠN CODE GỐC BỊ ẨN ĐI ===
+                    # files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "audio/wav")}
+                    # response = requests.post(API_URL, files=files)
+                    
+                    # === ĐOẠN CODE MOCK (GIẢ LẬP) ===
+                    time.sleep(1.5)  # Giả vờ như model đang chạy mất 1.5 giây
+                    mock_result = {
+                        "filename": uploaded_file.name,
+                        "transcription": "vu thi yen mock",
+                        "post_processed": "Vũ Thị Yến (Dữ liệu Mock)"
+                    }
+                    
                     process_time = time.time() - start_time
+                    
+                    # In kết quả giả lập ra màn hình
+                    st.success(f"Hoàn thành trong {process_time:.2f} giây!")
+                    st.info(f"**Kết quả:** {mock_result['post_processed']}")
 
-                    if response.status_code == 200:
-                        result = response.json()
-                        st.success(f"Hoàn thành trong {process_time:.2f} giây!")
-                        st.info(f"**Kết quả:** {result['post_processed']}")
-                    else:
-                        st.error(f"API lỗi: {response.text}")
                 except Exception as e:
                     st.error(f"Lỗi kết nối API: {e}")
-
 
 # ==========================================
 # TAB 2: MONITORING DASHBOARD (REAL DATA)
