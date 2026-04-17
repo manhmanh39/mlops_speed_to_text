@@ -213,8 +213,6 @@ tab_inference, tab_dashboard = st.tabs(
 )
 
 # ==========================================
-# TAB 1: GỌI API THẬT
-# ==========================================
 with tab_inference:
     st.header("Upload Audio file to Test Inference")
     uploaded_file = st.file_uploader("Chọn file âm thanh (.wav)", type=["wav"])
@@ -227,23 +225,28 @@ with tab_inference:
                 try:
                     start_time = time.time()
                     
-                    # === ĐOẠN CODE GỐC BỊ ẨN ĐI ===
-                    # files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "audio/wav")}
-                    # response = requests.post(API_URL, files=files)
-                    
-                    # === ĐOẠN CODE MOCK (GIẢ LẬP) ===
-                    time.sleep(1.5)  # Giả vờ như model đang chạy mất 1.5 giây
-                    mock_result = {
-                        "filename": uploaded_file.name,
-                        "transcription": "vu thi yen mock",
-                        "post_processed": "Vũ Thị Yến (Dữ liệu Mock)"
-                    }
+                    # === SỬ DỤNG API THẬT ===
+                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "audio/wav")}
+                    response = requests.post(API_URL, files=files)
                     
                     process_time = time.time() - start_time
                     
-                    # In kết quả giả lập ra màn hình
-                    st.success(f"Hoàn thành trong {process_time:.2f} giây!")
-                    st.info(f"**Kết quả:** {mock_result['post_processed']}")
+                    # Kiểm tra xem API có trả về kết quả thành công (status code 200) không
+                    if response.status_code == 200:
+                        # Parse dữ liệu JSON trả về từ API
+                        api_result = response.json()
+                        
+                        st.success(f"Hoàn thành trong {process_time:.2f} giây!")
+                        
+                        # In kết quả. Giả sử API của bạn trả về key 'post_processed' (nếu không có thì lấy 'transcription')
+                        # Bạn có thể chỉnh lại key này cho đúng với schema API thực tế của bạn
+                        final_text = api_result.get("post_processed", api_result.get("transcription", "Không nhận diện được"))
+                        st.info(f"**Kết quả:** {final_text}")
+                        
+                        # Bạn có thể dùng st.json(api_result) để xem toàn bộ cục raw data API trả về
+                        # st.json(api_result) 
+                    else:
+                        st.error(f"API trả về lỗi {response.status_code}: {response.text}")
 
                 except Exception as e:
                     st.error(f"Lỗi kết nối API: {e}")
