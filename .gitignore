@@ -2,7 +2,7 @@
 minikube-linux-amd64
 
 # Machine Learning Data & Models
-data_train_70.6/
+data/
 models/
 mlruns/
 person_name_500/
