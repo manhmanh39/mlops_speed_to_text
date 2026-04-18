@@ -1,28 +1,6 @@
-name: Docker Build & Push
-
-on:
-  push:
-    branches:
-      - main
-      - develop
-    tags:
-      - 'v*'
-  pull_request:
-    branches:
-      - main
-      - develop
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
-jobs:
-  # Đã xóa toàn bộ phần job 'test' dư thừa ở đây
-
-  build:
-    # Xóa dòng 'needs: test' vì job test không còn ở trong file này nữa
+build:
     runs-on: ubuntu-latest
-    name: Build Docker Image
+    name: Build Docker Images
     permissions:
       contents: read
       packages: write
@@ -41,65 +19,48 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
-        id: meta
+      # ─── 1. BUILD IMAGE CHO API ──────────────────────────────────────
+      - name: Extract metadata for API
+        id: meta-api
         uses: docker/metadata-action@v4
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # Thêm hậu tố -api vào tên image
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha
 
-      - name: Build and push Docker image
+      - name: Build and push API image
         uses: docker/build-push-action@v4
         with:
           context: .
+          file: ./Dockerfile.api  # <--- Chỉ đích danh file Dockerfile.api
           push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  test-docker:
-    needs: build
-    runs-on: ubuntu-latest
-    name: Test Docker Image (if push)
-    if: github.event_name != 'pull_request'
-    permissions:
-      contents: read
-      packages: read
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v2
+      # ─── 2. BUILD IMAGE CHO UI ───────────────────────────────────────
+      - name: Extract metadata for UI
+        id: meta-ui
+        uses: docker/metadata-action@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Thêm hậu tố -ui vào tên image
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ui
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha
 
-      - name: Pull Docker image
-        run: |
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main || \
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest || true
-
-      - name: Run linting in Docker
-        run: |
-          docker run --rm \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main \
-            ruff check . || \
-          docker run --rm \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            ruff check . || true
-
-      - name: Run tests in Docker
-        run: |
-          docker run --rm \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main \
-            pytest tests/ -v || \
-          docker run --rm \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-            pytest tests/ -v || true
+      - name: Build and push UI image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile.ui   # <--- Chỉ đích danh file Dockerfile.ui
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-ui.outputs.tags }}
+          labels: ${{ steps.meta-ui.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
