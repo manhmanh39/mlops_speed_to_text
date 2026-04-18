@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from eval_wav2vec2 import (
+    from src.models.eval_wav2vec2 import (
         compare_support_dialect_tone,
         convert_vietnamese_diacritics,
         convert_vietnamese_number,

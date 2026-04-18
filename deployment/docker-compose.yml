@@ -1,4 +1,4 @@
-#version: '3.8'
+# version: '3.8'
 
 services:
   # 1. MLflow Tracking
@@ -9,7 +9,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./mlruns:/app/mlruns
+      - ../mlruns:/app/mlruns
     working_dir: /app
     command: mlflow ui --host 0.0.0.0 --port 5000
     networks:
@@ -17,20 +17,23 @@ services:
 
   # 2. Training Job
   wav2vec2-train:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
     image: wav2vec2-vi:latest
     container_name: wav2vec2-train
     depends_on:
       - mlflow
     volumes:
-      - ./data_train_70.6:/app/data_train_70.6
-      - ./models:/app/models
+      - ../data:/app/data
+      - ../models:/app/models
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+    # Chạy script trong src/models và trỏ vào data/raw
     command: >
-      python train_wav2vec2.py
-      --extracted_dir /app/data_train_70.6
-      --meta_csv /app/data_train_70.6/metadata.csv
+      python src/models/train_wav2vec2.py
+      --extracted_dir /app/data/raw/data_train_70.6
+      --meta_csv /app/data/raw/data_train_70.6/metadata.csv
       --output_dir /app/models/wav2vec2-finetuned
       --num_train_epochs 35
       --learning_rate 1e-5
@@ -48,23 +51,24 @@ services:
 
   # 3. Evaluation Job
   wav2vec2-eval:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
     image: wav2vec2-vi:latest
     container_name: wav2vec2-eval
     depends_on:
       - mlflow
     volumes:
-      - ./data_train_70.6:/app/data_train_70.6
-      - ./person_name_500:/app/person_name_500
-      - ./models:/app/models
-      - ./outputs:/app/outputs
+      - ../data:/app/data
+      - ../models:/app/models
+      - ../outputs:/app/outputs
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     command: >
-      python eval_wav2vec2.py
+      python src/models/eval_wav2vec2.py
       --model_dir /app/models/wav2vec2-finetuned
       --local_weights /app/models/wav2vec2-finetuned/model.safetensors
-      --wav_dir /app/person_name_500
+      --wav_dir /app/data/raw/person_name_500
       --out_save_dir /app/outputs
       --run_postprocess
     deploy:
@@ -77,19 +81,22 @@ services:
     networks:
       - wav2vec2-net
 
-  # 4. FastAPI Inference Server (API Hàng Real)
+  # 4. FastAPI Inference Server
   wav2vec2-api:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
     container_name: wav2vec2-api
     ports:
       - "8000:8000"
     depends_on:
       - mlflow
     volumes:
-      - ./models:/app/models
+      - ../models:/app/models
     environment:
-      - MLFLOW_TRACKING_URI=http://mlflow:5000
-    command: uvicorn app:app --host 0.0.0.0 --port 8000
+      - MLFLOW_TRACKING_URI=http://mlflow-server:5000
+    # GỌI ĐÚNG ĐỊA CHỈ TRONG SRC
+    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload 
     networks:
       - wav2vec2-net
     deploy:
@@ -102,17 +109,20 @@ services:
 
   # 5. Streamlit Frontend UI
   frontend-ui:
-    build: .
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.ui
     container_name: frontend-ui
     ports:
       - "8501:8501"
     depends_on:
       - wav2vec2-api
-    command: streamlit run frontend.py --server.port=8501 --server.address=0.0.0.0
+    # GỌI ĐÚNG ĐỊA CHỈ TRONG SRC
+    command: streamlit run src/ui/frontend.py --server.port=8501 --server.address=0.0.0.0
     networks:
       - wav2vec2-net
 
-  # 6. Prometheus (Gom Data)
+  # 6. Prometheus
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -125,7 +135,7 @@ services:
     depends_on:
       - wav2vec2-api
 
-  # 7. Grafana (Vẽ Biểu Đồ Thật)
+  # 7. Grafana
   grafana:
     image: grafana/grafana:latest
     container_name: grafana
@@ -141,9 +151,3 @@ services:
 networks:
   wav2vec2-net:
     driver: bridge
-
-volumes:
-  data:
-  models:
-  outputs:
-  mlruns:

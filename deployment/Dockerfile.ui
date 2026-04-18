@@ -1,0 +1,19 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# 1. Chỉ cài đặt các thư viện cần thiết cho UI
+# Không cài requirements-vi.txt vì nó chứa torch nặng vài GB
+RUN pip install --no-cache-dir streamlit requests pandas
+
+# 2. Chỉ copy những gì Frontend cần
+COPY src/ui/ ./src/ui/
+COPY src/ui/assets/ ./src/ui/assets/ 
+
+# 3. Thiết lập PYTHONPATH
+ENV PYTHONPATH="${PYTHONPATH}:/app"
+
+# Expose port mặc định của Streamlit
+EXPOSE 8501
+
+CMD ["streamlit", "run", "src/ui/frontend.py", "--server.port=8501", "--server.address=0.0.0.0"]

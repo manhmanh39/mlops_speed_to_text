@@ -1,0 +1,34 @@
+FROM python:3.10-slim
+
+# 1. Cài đặt system libraries (Cần ffmpeg/libsndfile cho Backend)
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    git \
+    libsndfile1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Cài đặt các thư viện bổ trợ cho Monitoring & Audio logic
+RUN pip install --no-cache-dir librosa soundfile scipy prometheus-client prometheus-fastapi-instrumentator
+
+WORKDIR /app
+
+# 3. Cài đặt các thư viện nặng (torch, transformers...)
+COPY requirements-vi.txt .
+RUN pip install --no-cache-dir -r requirements-vi.txt
+
+# 4. Copy mã nguồn và artifacts
+COPY src/ ./src/
+COPY models/ ./models/
+COPY tests/ ./tests/
+COPY pyproject.toml pytest.ini ./
+
+# 5. Thiết lập PYTHONPATH
+ENV PYTHONPATH="${PYTHONPATH}:/app"
+
+# 6. Linting & Testing (Chỉ thực hiện ở bản API/Train cho chắc chắn)
+RUN echo "Running ruff linting..." && ruff check . || echo "Warning: ruff found issues"
+RUN echo "Running pytest..." && pytest tests/ -v --tb=short || echo "Warning: tests failed"
+
+CMD ["python3", "src/models/train_wav2vec2.py"]

@@ -2,15 +2,19 @@ import logging
 import os
 import shutil
 import uuid
+import json
+import librosa
 
 import mlflow
 import torch
 from fastapi import FastAPI, HTTPException, UploadFile
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
+from scipy.stats import ks_2samp
+from prometheus_client import Gauge, Histogram
 
-# Import logic từ file eval - Đảm bảo transcribe_wav2vec dùng Greedy Search
-from eval_wav2vec2 import (
+# Import logic from eval - Ensures Greedy Search is used
+from src.models.eval_wav2vec2 import (
     MODEL_ID_DEFAULT,
     _load_local_weights,
     _load_model_and_processor,
@@ -23,11 +27,21 @@ from eval_wav2vec2 import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Prometheus Metrics
+DRIFT_SCORE = Gauge('asr_ks_drift_score', 'K-S statistic for audio duration drift', ['feature_name'])
+TRANSCRIPTION_LENGTH = Histogram('asr_trans_len_words', 'Transcription word count', buckets=[1, 3, 5, 10])
+
+# Global variables for Drift Detection
+recent_durations = []
+WINDOW_SIZE = 20
+TRAIN_DURATIONS = []
+
 app = FastAPI(
     title="Vietnamese Name ASR API",
-    description="MLOps Final Project - Greedy Search (No KenLM)",
+    description="MLOps Final Project - Greedy Search Inference",
 )
 
+# Instrument the app for Prometheus
 instrumentator = Instrumentator().instrument(app)
 
 # Configuration
@@ -48,29 +62,40 @@ def _setup_mlflow():
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         mlflow.set_experiment(MLFLOW_EXPERIMENT)
     except Exception as e:
-        logger.warning(f"Không thể kết nối MLflow: {e}")
+        logger.warning(f"Could not connect to MLflow: {e}")
 
+@app.on_event("startup")
+async def load_baseline_data():
+    global TRAIN_DURATIONS
+    try:
+        baseline_path = "/app/models/baseline_distribution.json"
+        with open(baseline_path, "r") as f:
+            baseline = json.load(f)
+            TRAIN_DURATIONS = baseline["durations"]
+        logger.info(f">>> Baseline loaded: {len(TRAIN_DURATIONS)} samples found <<<")
+    except Exception as e:
+        logger.error(f"Failed to load baseline data: {e}")
 
 @app.on_event("startup")
 async def load_model_logic():
     global model, processor
     try:
         _setup_mlflow()
-        logger.info(f">>> Đang nạp model (Greedy) từ: {MODEL_DIR} <<<")
+        logger.info(f">>> Loading model (Greedy) from: {MODEL_DIR} <<<")
 
-        # 1. Nạp Model & Processor theo logic eval
+        # 1. Load Model & Processor
         model, processor = _load_model_and_processor(MODEL_ID, MODEL_DIR)
 
-        # 2. Nạp trọng số finetuned
+        # 2. Load fine-tuned weights
         if _load_local_weights(model, LOCAL_WEIGHTS):
-            logger.info(">>> Đã nạp tạ finetuned thành công! <<<")
+            logger.info(">>> Fine-tuned weights loaded successfully! <<<")
         else:
-            logger.warning(">>> Không tìm thấy tạ local, dùng trọng số Hub! <<<")
+            logger.warning(">>> Local weights not found, using Hub weights! <<<")
 
         model.to(DEVICE)
         model.eval()
 
-        # Log sự kiện startup lên MLflow
+        # Log startup event to MLflow
         try:
             with mlflow.start_run(run_name="api-startup"):
                 mlflow.set_tag("mode", "greedy_inference")
@@ -78,9 +103,9 @@ async def load_model_logic():
         except Exception:
             pass
 
-        logger.info(f"--- API SẴN SÀNG TRÊN {DEVICE} ---")
+        logger.info(f"--- API READY ON {DEVICE.upper()} ---")
     except Exception as e:
-        logger.error(f"--- LỖI KHỞI ĐỘNG: {e} ---")
+        logger.error(f"--- STARTUP ERROR: {e} ---")
 
 
 @app.on_event("startup")
@@ -97,7 +122,7 @@ class PredictionResponse(BaseModel):
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile):
     if not file.filename.endswith(".wav"):
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ file .wav")
+        raise HTTPException(status_code=400, detail="Only .wav files are supported")
 
     request_id = str(uuid.uuid4())
     raw_path = f"raw_{request_id}_{file.filename}"
@@ -107,20 +132,40 @@ async def predict(file: UploadFile):
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        # 1. Tiền xử lý (Denoise + Normalize)
+        # 1. Preprocessing (Denoise + Normalize)
         final_audio = _preprocess_wav(raw_path, norm_path)
+        
+        # --- DATA DRIFT DETECTION LOGIC ---
+        try:
+            # Calculate duration of the uploaded file
+            curr_duration = librosa.get_duration(path=final_audio)
+            recent_durations.append(curr_duration)
+            if len(recent_durations) > WINDOW_SIZE:
+                recent_durations.pop(0)
 
-        # 2. Nhận diện (Sử dụng hàm từ eval_wav2vec2)
+            # Perform K-S Test if window has at least 5 samples
+            if len(TRAIN_DURATIONS) > 0 and len(recent_durations) >= 5:
+                # stat represents the distance between distributions
+                stat, _ = ks_2samp(TRAIN_DURATIONS, recent_durations)
+                DRIFT_SCORE.labels(feature_name='audio_duration').set(stat)
+                logger.info(f"Drift Score updated: {stat:.4f}")
+        except Exception as ex:
+            logger.warning(f"Drift calculation failed: {ex}")
+
+        # --- INFERENCE ---
         raw_text = transcribe_wav2vec(final_audio, processor, model, DEVICE)
+        
+        # Track word count in Histogram
+        TRANSCRIPTION_LENGTH.observe(len(raw_text.split()))
 
-        # 3. Chuẩn hóa số tiếng Việt
+        # 2. Vietnamese number normalization
         clean_text = vietnamese_number_converter(raw_text)
 
-        # 4. Log kết quả inference
+        # 3. Log inference to MLflow
         try:
             with mlflow.start_run(run_name="inference_call", nested=True):
-                mlflow.log_param("file", file.filename)
-                mlflow.log_metric("text_len", len(raw_text))
+                mlflow.log_param("filename", file.filename)
+                mlflow.log_metric("text_length", len(raw_text))
         except Exception:
             pass
 
@@ -130,9 +175,10 @@ async def predict(file: UploadFile):
             "post_processed": clean_text,
         }
     except Exception as e:
-        logger.exception("Inference thất bại")
+        logger.exception("Inference failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
+        # Cleanup temporary files
         for p in [raw_path, norm_path]:
             if os.path.exists(p):
                 os.remove(p)
@@ -147,5 +193,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

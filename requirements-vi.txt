@@ -25,3 +25,6 @@ uvicorn
 python-multipart
 prometheus-fastapi-instrumentator
 streamlit
+librosa
+scipy
+prometheus_client
