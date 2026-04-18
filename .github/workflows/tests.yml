@@ -34,7 +34,7 @@ jobs:
         continue-on-error: false
 
       - name: Run flake8 linter
-        run: flake8 train_wav2vec2.py eval_wav2vec2.py
+        run: flake8 src/models/
         continue-on-error: false
 
   test:
