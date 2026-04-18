@@ -34,7 +34,7 @@ stages:
   # ── 2. Training ───────────────────────────────────────────────────────────
   train:
     cmd: >
-      python train_wav2vec2.py
+      python src/models/train_wav2vec2.py
       --extracted_dir ${data.extracted_dir}
       --meta_csv ${data.meta_csv}
       --output_dir ${train.output_dir}
@@ -43,7 +43,7 @@ stages:
       --per_device_train_batch_size ${train.per_device_train_batch_size}
       --gradient_accumulation_steps ${train.gradient_accumulation_steps}
     deps:
-      - train_wav2vec2.py
+      - src/models/train_wav2vec2.py
       - ${data.meta_csv}
       - ${data.extracted_dir}/wavs
     params:
@@ -59,14 +59,14 @@ stages:
   # ── 3. Evaluation ─────────────────────────────────────────────────────────
   evaluate:
     cmd: >
-      python eval_wav2vec2.py
+      python src/models/eval_wav2vec2.py
       --wav_dir ${eval.wav_dir}
       --model_dir ${train.output_dir}
       --local_weights ${train.output_dir}/model.safetensors
       --out_save_dir ${eval.out_save_dir}
       --run_postprocess
     deps:
-      - eval_wav2vec2.py
+      - src/models/eval_wav2vec2.py
       - ${train.output_dir}/model.safetensors
       - ${eval.wav_dir}
     params:
