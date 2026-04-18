@@ -1,5 +1,5 @@
-import time
 import os
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -39,7 +39,7 @@ if theme == "Dark":
         "btn_text": "#FFFFFF",
         "btn_border": "#FFFFFF",
         "btn_hover": "#262730",
-        "dropzone_bg": "#0D1117"
+        "dropzone_bg": "#0D1117",
     }
 else:
     colors = {
@@ -52,7 +52,7 @@ else:
         "btn_text": "#000000",
         "btn_border": "#000000",
         "btn_hover": "#F0F2F6",
-        "dropzone_bg": "#F0F2F6"
+        "dropzone_bg": "#F0F2F6",
     }
 
 # Service Endpoints within Docker Network
@@ -65,9 +65,9 @@ st.markdown(
     f"""
     <style>
     /* 1. Nền tổng thể */
-    .stApp {{ 
-        background-color: {colors['main_bg']}; 
-        color: {colors['text_main']}; 
+    .stApp {{
+        background-color: {colors['main_bg']};
+        color: {colors['text_main']};
     }}
 
     /* 2. Tiêu đề và Header (Title, st.header) */
@@ -91,25 +91,25 @@ st.markdown(
         font-weight: bold !important;
         transition: all 0.3s !important;
     }}
-    
+
     div.stButton > button:hover {{
         background-color: {colors['btn_hover']} !important;
         border-color: {colors['border']} !important;
     }}
 
     /* 5. Khung File Uploader & Thanh File Đã Upload */
-    
+
     /* a. Khung kéo thả file (Dropzone) */
     [data-testid="stFileUploadDropzone"] {{
-        background-color: {colors['card_bg']} !important; 
-        border: 2px dashed {colors['border']} !important; 
+        background-color: {colors['card_bg']} !important;
+        border: 2px dashed {colors['border']} !important;
         border-radius: 8px !important;
     }}
 
     /* Ép màu mọi thành phần chữ, icon bên trong Dropzone */
     [data-testid="stFileUploadDropzone"] * {{
         color: {colors['text_main']} !important;
-        fill: {colors['text_main']} !important; 
+        fill: {colors['text_main']} !important;
     }}
 
     /* Nút "Browse files" mặc định của Streamlit */
@@ -135,12 +135,12 @@ st.markdown(
     [data-testid="stUploadedFile"] button {{
         background-color: transparent !important;
     }}
-    
+
     [data-testid="stUploadedFile"] button svg {{
         fill: {colors['text_main']} !important;
     }}
 
-    
+
     /* 6. Toàn bộ nền Sidebar */
     [data-testid="stSidebar"] {{
         background-color: {colors['main_bg']} !important; /* Đổ màu tối cho cả thanh sidebar */
@@ -155,30 +155,31 @@ st.markdown(
         background-color: transparent !important; /* Đảm bảo không bị hiện ô màu riêng lẻ */
         margin-bottom: 2px !important;
     }}
-    
+
     /* Chỉnh luôn màu cho phần Radio Button chọn Theme trong Sidebar */
     [data-testid="stSidebar"] label p {{
         color: {colors['text_main']} !important;
     }}
 
     /* 7. Metric Cards */
-    div[data-testid="metric-container"] {{ 
-        background-color: {colors['card_bg']}; 
-        border: 2px solid {colors['border']}; 
+    div[data-testid="metric-container"] {{
+        background-color: {colors['card_bg']};
+        border: 2px solid {colors['border']};
     }}
-    
+
     /* 8. Tabs */
     .stTabs [data-baseweb="tab-list"] button {{
         color: {colors['text_sub']} !important;
     }}
-    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{ 
-        color: #ff4b4b !important; 
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {{
+        color: #ff4b4b !important;
         border-bottom: 2px solid #ff4b4b !important;
     }}
     </style>
 """,
     unsafe_allow_html=True,
 )
+
 
 # --- HELPER FUNCTIONS ---
 def get_prom_value(query):
@@ -189,17 +190,23 @@ def get_prom_value(query):
     except Exception:
         return 0.0
 
+
 def get_prom_series(query, minutes=5):
     try:
         end = time.time()
         start = end - (minutes * 60)
-        response = requests.get(PROMETHEUS_RANGE_URL, params={"query": query, "start": start, "end": end, "step": "10s"}, timeout=2)
+        response = requests.get(
+            PROMETHEUS_RANGE_URL,
+            params={"query": query, "start": start, "end": end, "step": "10s"},
+            timeout=2,
+        )
         values = response.json()["data"]["result"][0]["values"]
         df = pd.DataFrame(values, columns=["timestamp", "value"])
         df["value"] = df["value"].astype(float)
         return df
     except Exception:
         return pd.DataFrame(columns=["value"])
+
 
 # --- UI HEADER ---
 st.title("🎙️ MLOps: Vietnamese Speech-to-Text")
@@ -222,11 +229,13 @@ with tab_inference:
                     files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "audio/wav")}
                     response = requests.post(API_URL, files=files)
                     process_time = time.time() - start_time
-                    
+
                     if response.status_code == 200:
                         api_result = response.json()
                         st.success(f"Completed in {process_time:.2f} seconds!")
-                        final_text = api_result.get("post_processed", api_result.get("transcription", "Inference failed"))
+                        final_text = api_result.get(
+                            "post_processed", api_result.get("transcription", "Inference failed")
+                        )
                         st.info(f"**Transcription:** {final_text}")
                     else:
                         st.error(f"API Error {response.status_code}: {response.text}")
@@ -240,7 +249,10 @@ with tab_dashboard:
 
     # Metrics from Prometheus
     total_requests = get_prom_value('http_requests_total{handler="/predict"}')
-    avg_latency = get_prom_value('rate(http_request_duration_seconds_sum{handler="/predict"}[5m]) / rate(http_request_duration_seconds_count{handler="/predict"}[5m])')
+    avg_latency = get_prom_value(
+        'rate(http_request_duration_seconds_sum{handler="/predict"}[5m]) '
+        '/ rate(http_request_duration_seconds_count{handler="/predict"}[5m])'
+    )
     rps = get_prom_value('rate(http_requests_total{handler="/predict"}[1m])')
 
     col1, col2, col3, col4 = st.columns(4)
@@ -260,21 +272,28 @@ with tab_dashboard:
 
     with chart_col2:
         st.subheader("Latency History (s)")
-        lat_df = get_prom_series('rate(http_request_duration_seconds_sum{handler="/predict"}[1m]) / rate(http_request_duration_seconds_count{handler="/predict"}[1m])')
+        lat_df = get_prom_series(
+            'rate(http_request_duration_seconds_sum{handler="/predict"}[1m]) '
+            '/ rate(http_request_duration_seconds_count{handler="/predict"}[1m])'
+        )
         if not lat_df.empty:
             st.area_chart(lat_df["value"], color="#FFA500")
         else:
             st.write("Waiting for data...")
 
-    st.caption(f"Last sync: {datetime.now().strftime('%H:%M:%S')} - Data source: http://prometheus:9090")
+    st.caption(
+        f"Last sync: {datetime.now().strftime('%H:%M:%S')} - Data source: http://prometheus:9090"
+    )
 
     st.markdown("---")
     st.subheader("🕵️ Data Drift Detection (K-S Test)")
-    
+
     drift_score = get_prom_value('asr_ks_drift_score{feature_name="audio_duration"}')
-    
+
     if drift_score > 0.3:
-        st.error(f"⚠️ HIGH DRIFT DETECTED: {drift_score:.4f} (Input significantly differs from Training set!)")
+        st.error(
+            f"⚠️ HIGH DRIFT DETECTED: {drift_score:.4f} (Input significantly differs from Training set!)"
+        )
     elif drift_score > 0.15:
         st.warning(f"🟡 Warning: Minor Drift detected: {drift_score:.4f}")
     else:

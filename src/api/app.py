@@ -1,17 +1,17 @@
+import json
 import logging
 import os
 import shutil
 import uuid
-import json
-import librosa
 
+import librosa
 import mlflow
 import torch
 from fastapi import FastAPI, HTTPException, UploadFile
+from prometheus_client import Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from scipy.stats import ks_2samp
-from prometheus_client import Gauge, Histogram
 
 # Import logic from eval - Ensures Greedy Search is used
 from src.models.eval_wav2vec2 import (
@@ -28,8 +28,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Prometheus Metrics
-DRIFT_SCORE = Gauge('asr_ks_drift_score', 'K-S statistic for audio duration drift', ['feature_name'])
-TRANSCRIPTION_LENGTH = Histogram('asr_trans_len_words', 'Transcription word count', buckets=[1, 3, 5, 10])
+DRIFT_SCORE = Gauge(
+    "asr_ks_drift_score", "K-S statistic for audio duration drift", ["feature_name"]
+)
+TRANSCRIPTION_LENGTH = Histogram(
+    "asr_trans_len_words", "Transcription word count", buckets=[1, 3, 5, 10]
+)
 
 # Global variables for Drift Detection
 recent_durations = []
@@ -64,6 +68,7 @@ def _setup_mlflow():
     except Exception as e:
         logger.warning(f"Could not connect to MLflow: {e}")
 
+
 @app.on_event("startup")
 async def load_baseline_data():
     global TRAIN_DURATIONS
@@ -75,6 +80,7 @@ async def load_baseline_data():
         logger.info(f">>> Baseline loaded: {len(TRAIN_DURATIONS)} samples found <<<")
     except Exception as e:
         logger.error(f"Failed to load baseline data: {e}")
+
 
 @app.on_event("startup")
 async def load_model_logic():
@@ -134,7 +140,7 @@ async def predict(file: UploadFile):
     try:
         # 1. Preprocessing (Denoise + Normalize)
         final_audio = _preprocess_wav(raw_path, norm_path)
-        
+
         # --- DATA DRIFT DETECTION LOGIC ---
         try:
             # Calculate duration of the uploaded file
@@ -147,14 +153,14 @@ async def predict(file: UploadFile):
             if len(TRAIN_DURATIONS) > 0 and len(recent_durations) >= 5:
                 # stat represents the distance between distributions
                 stat, _ = ks_2samp(TRAIN_DURATIONS, recent_durations)
-                DRIFT_SCORE.labels(feature_name='audio_duration').set(stat)
+                DRIFT_SCORE.labels(feature_name="audio_duration").set(stat)
                 logger.info(f"Drift Score updated: {stat:.4f}")
         except Exception as ex:
             logger.warning(f"Drift calculation failed: {ex}")
 
         # --- INFERENCE ---
         raw_text = transcribe_wav2vec(final_audio, processor, model, DEVICE)
-        
+
         # Track word count in Histogram
         TRANSCRIPTION_LENGTH.observe(len(raw_text.split()))
 
@@ -193,4 +199,5 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
