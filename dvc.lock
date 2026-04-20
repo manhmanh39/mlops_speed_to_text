@@ -3,8 +3,8 @@ stages:
   train:
     cmd: "python src/models/train_wav2vec2.py --extracted_dir data/data_train_70.6
       --meta_csv data/data_train_70.6/metadata.csv --output_dir models/wav2vec2-finetuned
-      --num_train_epochs 20 --learning_rate 1e-05 --per_device_train_batch_size 8
-      --gradient_accumulation_steps 6\n"
+      --num_train_epochs 35 --learning_rate 1e-05 --per_device_train_batch_size 2
+      --gradient_accumulation_steps 12\n"
     deps:
     - path: data/data_train_70.6/metadata.csv
       hash: md5
@@ -26,13 +26,64 @@ stages:
           extracted_dir: data/data_train_70.6
         train:
           output_dir: models/wav2vec2-finetuned
-          num_train_epochs: 20
+          num_train_epochs: 35
           learning_rate: 1e-05
-          per_device_train_batch_size: 8
-          gradient_accumulation_steps: 6
+          per_device_train_batch_size: 2
+          gradient_accumulation_steps: 12
     outs:
     - path: models/wav2vec2-finetuned
       hash: md5
       md5: d94134354520ebe01ecbb2d7a395d441.dir
       size: 5123027777
       nfiles: 23
+  prepare:
+    cmd: "python -c \"import pandas as pd, os, sys; meta = pd.read_csv('data/data_train_70.6/metadata.csv',
+      sep='|', header=None, names=['filename','transcript']); wav_dir = os.path.join('data/data_train_70.6',
+      'wavs'); missing = [f for f in meta['filename'] if not os.path.exists(os.path.join(wav_dir,
+      f))]; print(f'Dataset rows: {len(meta)}, missing wavs: {len(missing)}'); sys.exit(1)
+      if missing else print('All WAV files present.')\"\n"
+    deps:
+    - path: data/data_train_70.6/metadata.csv
+      hash: md5
+      md5: bea3dafa529c180f9b9ed0914036cf51
+      size: 274129
+    - path: data/data_train_70.6/wavs
+      hash: md5
+      md5: 5a771cc3315b48b47320966c2085fe9f.dir
+      size: 282347556
+      nfiles: 2801
+    outs:
+    - path: prepare.log
+      hash: md5
+      md5: d41d8cd98f00b204e9800998ecf8427e
+      size: 0
+  evaluate:
+    cmd: "python src/models/eval_wav2vec2.py --wav_dir data/person_name_500 --model_dir
+      models/wav2vec2-finetuned --local_weights models/wav2vec2-finetuned/model.safetensors
+      --out_save_dir outputs --run_postprocess\n"
+    deps:
+    - path: data/person_name_500
+      hash: md5
+      md5: ac602e4e7bde3acc5cd7a4a7f02794a6.dir
+      size: 17312576
+      nfiles: 500
+    - path: models/wav2vec2-finetuned
+      hash: md5
+      md5: d94134354520ebe01ecbb2d7a395d441.dir
+      size: 5123027777
+      nfiles: 23
+    - path: src/models/eval_wav2vec2.py
+      hash: md5
+      md5: fe794db115542a0e641e69667ad34079
+      size: 25470
+    params:
+      params.yaml:
+        eval:
+          wav_dir: data/person_name_500
+          out_save_dir: outputs
+    outs:
+    - path: outputs
+      hash: md5
+      md5: d751713988987e9331980363e24189ce.dir
+      size: 0
+      nfiles: 0

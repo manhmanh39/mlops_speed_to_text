@@ -13,12 +13,11 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
 from scipy.stats import ks_2samp
 
-# Import logic from eval - Ensures Greedy Search is used
-from models.eval_wav2vec2 import (
+# Import logic từ eval - Đảm bảo sử dụng các hàm helper có sẵn
+from models.eval_baseline import (
     MODEL_ID_DEFAULT,
     _load_local_weights,
     _load_model_and_processor,
-    _preprocess_wav,
     transcribe_wav2vec,
     vietnamese_number_converter,
 )
@@ -35,17 +34,17 @@ TRANSCRIPTION_LENGTH = Histogram(
     "asr_trans_len_words", "Transcription word count", buckets=[1, 3, 5, 10]
 )
 
-# Global variables for Drift Detection
+# Global variables cho Drift Detection
 recent_durations = []
 WINDOW_SIZE = 20
 TRAIN_DURATIONS = []
 
 app = FastAPI(
     title="Vietnamese Name ASR API",
-    description="MLOps Final Project - Greedy Search Inference",
+    description="MLOps Final Project - E3: Finetune Only (No Preprocessing)",
 )
 
-# Instrument the app for Prometheus
+# Instrument app cho Prometheus
 instrumentator = Instrumentator().instrument(app)
 
 # Configuration
@@ -60,14 +59,12 @@ MLFLOW_EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT_NAME", "wav2vec2-vietnames
 model = None
 processor = None
 
-
 def _setup_mlflow():
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         mlflow.set_experiment(MLFLOW_EXPERIMENT)
     except Exception as e:
         logger.warning(f"Could not connect to MLflow: {e}")
-
 
 @app.on_event("startup")
 async def load_baseline_data():
@@ -81,13 +78,12 @@ async def load_baseline_data():
     except Exception as e:
         logger.error(f"Failed to load baseline data: {e}")
 
-
 @app.on_event("startup")
 async def load_model_logic():
     global model, processor
     try:
         _setup_mlflow()
-        logger.info(f">>> Loading model (Greedy) from: {MODEL_DIR} <<<")
+        logger.info(f">>> Loading model (E3 - Finetune Only) from: {MODEL_DIR} <<<")
 
         # 1. Load Model & Processor
         model, processor = _load_model_and_processor(MODEL_ID, MODEL_DIR)
@@ -101,29 +97,25 @@ async def load_model_logic():
         model.to(DEVICE)
         model.eval()
 
-        # Log startup event to MLflow
         try:
-            with mlflow.start_run(run_name="api-startup"):
-                mlflow.set_tag("mode", "greedy_inference")
+            with mlflow.start_run(run_name="api-startup-e3"):
+                mlflow.set_tag("mode", "e3_finetune_only")
                 mlflow.log_param("device", DEVICE)
         except Exception:
             pass
 
-        logger.info(f"--- API READY ON {DEVICE.upper()} ---")
+        logger.info(f"--- API READY ON {DEVICE.upper()} (E3 MODE) ---")
     except Exception as e:
         logger.error(f"--- STARTUP ERROR: {e} ---")
-
 
 @app.on_event("startup")
 async def setup_instrumentation():
     instrumentator.expose(app)
 
-
 class PredictionResponse(BaseModel):
     filename: str
     transcription: str
     post_processed: str
-
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile):
@@ -131,45 +123,38 @@ async def predict(file: UploadFile):
         raise HTTPException(status_code=400, detail="Only .wav files are supported")
 
     request_id = str(uuid.uuid4())
+    # Lưu file tạm để inference trực tiếp
     raw_path = f"raw_{request_id}_{file.filename}"
-    norm_path = f"norm_{request_id}_{file.filename}"
 
     with open(raw_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     try:
-        # 1. Preprocessing (Denoise + Normalize)
-        final_audio = _preprocess_wav(raw_path, norm_path)
-
-        # --- DATA DRIFT DETECTION LOGIC ---
+        # --- DRIFT DETECTION ---
         try:
-            # Calculate duration of the uploaded file
-            curr_duration = librosa.get_duration(path=final_audio)
+            # Vẫn tính duration trên file raw để monitor data drift
+            curr_duration = librosa.get_duration(path=raw_path)
             recent_durations.append(curr_duration)
             if len(recent_durations) > WINDOW_SIZE:
                 recent_durations.pop(0)
 
-            # Perform K-S Test if window has at least 5 samples
             if len(TRAIN_DURATIONS) > 0 and len(recent_durations) >= 5:
-                # stat represents the distance between distributions
                 stat, _ = ks_2samp(TRAIN_DURATIONS, recent_durations)
                 DRIFT_SCORE.labels(feature_name="audio_duration").set(stat)
-                logger.info(f"Drift Score updated: {stat:.4f}")
         except Exception as ex:
             logger.warning(f"Drift calculation failed: {ex}")
 
-        # --- INFERENCE ---
-        raw_text = transcribe_wav2vec(final_audio, processor, model, DEVICE)
+        # --- INFERENCE (E3: NO PREPROCESSING) ---
+        # Truyền trực tiếp raw_path vào hàm transcribe thay vì qua _preprocess_wav
+        raw_text = transcribe_wav2vec(raw_path, processor, model, DEVICE)
 
-        # Track word count in Histogram
+        # Metrics
         TRANSCRIPTION_LENGTH.observe(len(raw_text.split()))
-
-        # 2. Vietnamese number normalization
         clean_text = vietnamese_number_converter(raw_text)
 
-        # 3. Log inference to MLflow
+        # MLflow logging
         try:
-            with mlflow.start_run(run_name="inference_call", nested=True):
+            with mlflow.start_run(run_name="inference_e3", nested=True):
                 mlflow.log_param("filename", file.filename)
                 mlflow.log_metric("text_length", len(raw_text))
         except Exception:
@@ -184,20 +169,16 @@ async def predict(file: UploadFile):
         logger.exception("Inference failed")
         raise HTTPException(status_code=500, detail=str(e)) from e
     finally:
-        # Cleanup temporary files
-        for p in [raw_path, norm_path]:
-            if os.path.exists(p):
-                os.remove(p)
-
+        # Cleanup
+        if os.path.exists(raw_path):
+            os.remove(raw_path)
 
 @app.get("/health")
 async def health_check():
     if model is not None:
-        return {"status": "healthy", "device": DEVICE}
+        return {"status": "healthy", "mode": "E3_Finetune_Only", "device": DEVICE}
     return {"status": "loading"}, 503
-
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

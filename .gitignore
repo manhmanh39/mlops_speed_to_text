@@ -26,3 +26,4 @@ venv/
 # DVC local (giữ lại các file .dvc, ignore cache)
 .dvc/cache/
 .dvc/tmp/
+/outputs

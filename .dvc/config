@@ -1,6 +1,6 @@
 [core]
     analytics = false
-    remote = localremote
+    remote = myremote
 ['remote "myremote"']
     url = gdrive://1ub453ne-iCdxp75eKJc9cEB9WFvCoFxj
 ['remote "localremote"']
