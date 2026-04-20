@@ -6,7 +6,7 @@ data/**
 !data/**/
 !data/*.dvc
 !data/.gitignore
-models/
+/models/
 mlruns/
 person_name_500/
 outputs/
