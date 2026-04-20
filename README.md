@@ -7,6 +7,7 @@ This repository implements a production-ready MLOps pipeline for a Speech-to-Tex
 * Phạm Thị Ngọc Ánh
 * Nguyễn Thị Hương Giang
 * Nguyễn Khánh Huyền
+* Lê Lan Hương
 * Nguyễn Thanh Mơ
 ## 🚀 Key Features
 
