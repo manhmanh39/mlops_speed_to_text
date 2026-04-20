@@ -8,6 +8,7 @@ import pandas as pd
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Cấu hình đường dẫn (Hải chỉnh lại cho khớp với folder trên máy nhé)
 EXTRACTED_DIR = "data_train_70.6"
