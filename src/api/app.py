@@ -4,7 +4,6 @@ import logging
 import os
 import shutil
 import uuid
-
 import librosa
 import mlflow
 import torch
@@ -60,12 +59,14 @@ MLFLOW_EXPERIMENT = os.environ.get("MLFLOW_EXPERIMENT_NAME", "wav2vec2-vietnames
 model = None
 processor = None
 
+
 def _setup_mlflow():
     try:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         mlflow.set_experiment(MLFLOW_EXPERIMENT)
     except Exception as e:
         logger.warning(f"Could not connect to MLflow: {e}")
+
 
 @app.on_event("startup")
 async def load_baseline_data():
@@ -78,6 +79,7 @@ async def load_baseline_data():
         logger.info(f">>> Baseline loaded: {len(TRAIN_DURATIONS)} samples found <<<")
     except Exception as e:
         logger.error(f"Failed to load baseline data: {e}")
+
 
 @app.on_event("startup")
 async def load_model_logic():
@@ -109,14 +111,17 @@ async def load_model_logic():
     except Exception as e:
         logger.error(f"--- STARTUP ERROR: {e} ---")
 
+
 @app.on_event("startup")
 async def setup_instrumentation():
     instrumentator.expose(app)
+
 
 class PredictionResponse(BaseModel):
     filename: str
     transcription: str
     post_processed: str
+
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile):
@@ -173,6 +178,7 @@ async def predict(file: UploadFile):
         # Cleanup
         if os.path.exists(raw_path):
             os.remove(raw_path)
+
 
 @app.get("/health")
 async def health_check():
