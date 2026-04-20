@@ -1,37 +1,19 @@
-# dvc.yaml – DVC pipeline for wav2vec2 Vietnamese ASR project
-#
-# Stages:
-#   prepare  – validate + version the raw dataset
-#   train    – fine-tune wav2vec2 (reads params.yaml for hyper-params)
-#   evaluate – run evaluation and produce metrics.json
-#
-# Run the full pipeline:  dvc repro
-# Run a single stage:     dvc repro train
-
 stages:
-
-  # ── 1. Data preparation / validation ──────────────────────────────────────
   prepare:
     cmd: >
-      python -c "
-      import pandas as pd, os, sys;
+      python -c "import pandas as pd, os, sys;
       meta = pd.read_csv('${data.meta_csv}', sep='|', header=None, names=['filename','transcript']);
       wav_dir = os.path.join('${data.extracted_dir}', 'wavs');
       missing = [f for f in meta['filename'] if not os.path.exists(os.path.join(wav_dir, f))];
       print(f'Dataset rows: {len(meta)}, missing wavs: {len(missing)}');
-      sys.exit(1) if missing else print('All WAV files present.')
-      "
+      sys.exit(1) if missing else print('All WAV files present.')"
     deps:
       - ${data.meta_csv}
       - ${data.extracted_dir}/wavs
-    params:
-      - data.meta_csv
-      - data.extracted_dir
     outs:
       - prepare.log:
           cache: false
 
-  # ── 2. Training ───────────────────────────────────────────────────────────
   train:
     cmd: >
       python src/models/train_wav2vec2.py
@@ -50,13 +32,8 @@ stages:
       - data
       - train
     outs:
-      - ${train.output_dir}:
-          cache: true
-    metrics:
-      - ${train.output_dir}/trainer_state.json:
-          cache: false
+      - ${train.output_dir}
 
-  # ── 3. Evaluation ─────────────────────────────────────────────────────────
   evaluate:
     cmd: >
       python src/models/eval_wav2vec2.py
@@ -67,14 +44,9 @@ stages:
       --run_postprocess
     deps:
       - src/models/eval_wav2vec2.py
-      - ${train.output_dir}/model.safetensors
+      - ${train.output_dir}
       - ${eval.wav_dir}
     params:
       - eval
-      - train.output_dir
     outs:
-      - ${eval.out_save_dir}/transcription_results_wav2vec2.csv:
-          cache: false
-    metrics:
-      - ${eval.out_save_dir}/metrics.json:
-          cache: false
+      - ${eval.out_save_dir}

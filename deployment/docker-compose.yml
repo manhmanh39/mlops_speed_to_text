@@ -1,10 +1,9 @@
 # version: '3.8'
-
 services:
   # 1. MLflow Tracking
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.13.0
-    container_name: mlflow-server
+    container_name: mlflow
     user: "root"
     ports:
       - "5000:5000"
@@ -28,16 +27,17 @@ services:
       - ../data:/app/data
       - ../models:/app/models
     environment:
+      - HF_TOKEN=${HF_TOKEN}
       - MLFLOW_TRACKING_URI=http://mlflow:5000
-    # Chạy script trong src/models và trỏ vào data/raw
+      - MLFLOW_EXPERIMENT_NAME=wav2vec2-vietnamese-train
     command: >
-      python src/models/train_wav2vec2.py
-      --extracted_dir /app/data/raw/data_train_70.6
-      --meta_csv /app/data/raw/data_train_70.6/metadata.csv
+      python3 src/models/train_wav2vec2.py
+      --extracted_dir /app/data/data_train_70.6
+      --meta_csv /app/data/data_train_70.6/metadata.csv
       --output_dir /app/models/wav2vec2-finetuned
       --num_train_epochs 35
       --learning_rate 1e-5
-      --per_device_train_batch_size 2  
+      --per_device_train_batch_size 2
       --gradient_accumulation_steps 12
     deploy:
       resources:
@@ -49,28 +49,31 @@ services:
     networks:
       - wav2vec2-net
 
-  # 3. Evaluation Job
-  wav2vec2-eval:
+  # ─── BASELINE EXPERIMENTS ────────────────────────────────────────────────
+
+  # E1: Baseline Base
+  # Base model từ hub, không finetune, không preproc
+  wav2vec2-eval-e1:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.api
     image: wav2vec2-vi:latest
-    container_name: wav2vec2-eval
+    container_name: wav2vec2-eval-e1
     depends_on:
       - mlflow
     volumes:
       - ../data:/app/data
       - ../models:/app/models
-      - ../outputs:/app/outputs
+      - ../outputs/E1:/app/outputs
     environment:
       - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_EXPERIMENT_NAME=wav2vec2-vietnamese-eval
     command: >
-      python src/models/eval_wav2vec2.py
-      --model_dir /app/models/wav2vec2-finetuned
-      --local_weights /app/models/wav2vec2-finetuned/model.safetensors
-      --wav_dir /app/data/raw/person_name_500
+      python3 src/models/eval_baseline.py
+      --model_id nguyenvulebinh/wav2vec2-base-vi-vlsp2020
+      --wav_dir /app/data/person_name_500
       --out_save_dir /app/outputs
-      --run_postprocess
+      --run_name E1_Baseline_Base
     deploy:
       resources:
         reservations:
@@ -80,6 +83,113 @@ services:
               capabilities: [gpu]
     networks:
       - wav2vec2-net
+
+  # E2: Baseline Large
+  # Large model từ hub, không finetune, không preproc
+  wav2vec2-eval-e2:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    image: wav2vec2-vi:latest
+    container_name: wav2vec2-eval-e2
+    depends_on:
+      - mlflow
+    volumes:
+      - ../data:/app/data
+      - ../models:/app/models
+      - ../outputs/E2:/app/outputs
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_EXPERIMENT_NAME=wav2vec2-vietnamese-eval
+    command: >
+      python3 src/models/eval_baseline.py
+      --model_id nguyenvulebinh/wav2vec2-large-vi-vlsp2020
+      --wav_dir /app/data/person_name_500
+      --out_save_dir /app/outputs
+      --run_name E2_Baseline_Large
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - wav2vec2-net
+
+  # E3: Finetune Only
+  # Large model + finetuned weights, không preproc
+  wav2vec2-eval-e3:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    image: wav2vec2-vi:latest
+    container_name: wav2vec2-eval-e3
+    depends_on:
+      - mlflow
+    volumes:
+      - ../data:/app/data
+      - ../models:/app/models
+      - ../outputs/E3:/app/outputs
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_EXPERIMENT_NAME=wav2vec2-vietnamese-eval
+    command: >
+      python3 src/models/eval_baseline.py
+      --model_id nguyenvulebinh/wav2vec2-large-vi-vlsp2020
+      --model_dir /app/models/wav2vec2-finetuned
+      --local_weights /app/models/wav2vec2-finetuned/model.safetensors
+      --wav_dir /app/data/person_name_500
+      --out_save_dir /app/outputs
+      --run_name E3_Finetune_Only
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - wav2vec2-net
+
+  # E4: Finetune + Data Engineering
+  # Large model + finetuned weights + preproc audio + postprocess text
+  wav2vec2-eval-e4:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.api
+    image: wav2vec2-vi:latest
+    container_name: wav2vec2-eval
+    depends_on:
+      - mlflow
+    volumes:
+      - ../src:/app/src
+      - ../data:/app/data
+      - ../models:/app/models
+      - ../outputs:/app/outputs
+    environment:
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+    command: >
+      python3 src/models/eval_wav2vec2.py
+      --model_id nguyenvulebinh/wav2vec2-large-vi-vlsp2020
+      --model_dir /app/models/wav2vec2-finetuned
+      --local_weights /app/models/wav2vec2-finetuned/model.safetensors
+      --wav_dir /app/data/person_name_500
+      --out_save_dir /app/outputs
+      --run_postprocess
+      --run_name E4_Run_Postprocess
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - wav2vec2-net
+
+
+  # ─── INFERENCE & FRONTEND ────────────────────────────────────────────────
 
   # 4. FastAPI Inference Server
   wav2vec2-api:
@@ -94,9 +204,9 @@ services:
     volumes:
       - ../models:/app/models
     environment:
-      - MLFLOW_TRACKING_URI=http://mlflow-server:5000
-    # GỌI ĐÚNG ĐỊA CHỈ TRONG SRC
-    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload 
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - PYTHONPATH=/app/src
+    command: uvicorn src.api.app:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - wav2vec2-net
     deploy:
@@ -117,7 +227,6 @@ services:
       - "8501:8501"
     depends_on:
       - wav2vec2-api
-    # GỌI ĐÚNG ĐỊA CHỈ TRONG SRC
     command: streamlit run src/ui/frontend.py --server.port=8501 --server.address=0.0.0.0
     networks:
       - wav2vec2-net

@@ -1,2 +1,7 @@
 [core]
     analytics = false
+    remote = localremote
+['remote "myremote"']
+    url = gdrive://1ub453ne-iCdxp75eKJc9cEB9WFvCoFxj
+['remote "localremote"']
+    url = /home/embiekhochiu/dvc_remote_fake

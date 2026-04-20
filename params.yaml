@@ -1,18 +1,14 @@
-# params.yaml – DVC-tracked hyper-parameters and paths
-# Edit this file to change training/eval settings.
-# DVC uses it to detect when a stage needs to be re-run.
-
 data:
-  extracted_dir: /app/data/train
-  meta_csv: /app/data/train/metadata.csv
+  extracted_dir: data/train
+  meta_csv: data/train/metadata.csv
 
 train:
-  output_dir: /app/models/wav2vec2-finetuned
+  output_dir: models/wav2vec2-finetuned
   num_train_epochs: 20
   learning_rate: 1.0e-5
   per_device_train_batch_size: 8
   gradient_accumulation_steps: 6
 
 eval:
-  wav_dir: /app/data/eval
-  out_save_dir: /app/outputs
+  wav_dir: data/eval
+  out_save_dir: outputs

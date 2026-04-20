@@ -10,16 +10,12 @@ bitsandbytes
 safetensors
 unidecode
 noisereduce
-# Experiment tracking (replaces wandb)
 mlflow>=2.13.0
-# Data versioning
 dvc>=3.0.0
-# Linting and testing
 ruff>=0.1.0
 flake8>=6.0.0
 pytest>=7.0.0
 pytest-cov>=4.0.0
-pyctcdecode
 fastapi
 uvicorn
 python-multipart
@@ -28,3 +24,5 @@ streamlit
 librosa
 scipy
 prometheus_client
+pydub
+noisereduce

@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from scipy.stats import ks_2samp
 
 # Import logic from eval - Ensures Greedy Search is used
-from src.models.eval_wav2vec2 import (
+from models.eval_wav2vec2 import (
     MODEL_ID_DEFAULT,
     _load_local_weights,
     _load_model_and_processor,
