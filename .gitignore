@@ -2,7 +2,10 @@
 minikube-linux-amd64
 
 # Machine Learning Data & Models
-data/
+data/**
+!data/**/
+!data/*.dvc
+!data/.gitignore
 models/
 mlruns/
 person_name_500/
