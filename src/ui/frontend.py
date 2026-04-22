@@ -25,35 +25,20 @@ st.sidebar.markdown("###### Nguyễn Thị Hương Giang")
 st.sidebar.markdown("###### Lê Lan Hương")
 st.sidebar.markdown("---")
 
-theme = st.sidebar.radio("🎨 Select Theme", ["Dark", "Light"])
+# theme = st.sidebar.radio("🎨 Select Theme", ["Dark", "Light"])
 
-# --- 2. DYNAMIC COLOR PALETTE ---
-if theme == "Dark":
-    colors = {
-        "main_bg": "#0E1117",
-        "card_bg": "#161B22",
-        "text_main": "#FFFFFF",
-        "text_sub": "#FAFBFC",
-        "border": "#161B22",
-        "btn_bg": "#161B22",
-        "btn_text": "#FFFFFF",
-        "btn_border": "#FFFFFF",
-        "btn_hover": "#262730",
-        "dropzone_bg": "#0D1117",
-    }
-else:
-    colors = {
-        "main_bg": "#FFFFFF",
-        "card_bg": "#F0F2F6",
-        "text_main": "#000000",
-        "text_sub": "#31333F",
-        "border": "#DADDE1",
-        "btn_bg": "#FFFFFF",
-        "btn_text": "#000000",
-        "btn_border": "#000000",
-        "btn_hover": "#F0F2F6",
-        "dropzone_bg": "#F0F2F6",
-    }
+colors = {
+    "main_bg": "#FFFFFF",
+    "card_bg": "#F0F2F6",
+    "text_main": "#000000",
+    "text_sub": "#31333F",
+    "border": "#DADDE1",
+    "btn_bg": "#FFFFFF",
+    "btn_text": "#000000",
+    "btn_border": "#000000",
+    "btn_hover": "#F0F2F6",
+    "dropzone_bg": "#F0F2F6",
+}
 
 # Service Endpoints within Docker Network
 PROMETHEUS_URL = "http://prometheus:9090/api/v1/query"
@@ -112,11 +97,11 @@ st.markdown(
         fill: {colors['text_main']} !important;
     }}
 
-    /* Nút "Browse files" mặc định của Streamlit */
+    /* Nút "Browse files" mặc định của Streamlit (Cố định nền trắng, chữ đen) */
     [data-testid="baseButton-secondary"] {{
-        background-color: {colors['btn_bg']} !important;
-        color: {colors['text_main']} !important;
-        border: 1px solid {colors['border']} !important;
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+        border: 1px solid #000000 !important;
     }}
 
     /* b. Thanh hiển thị file đã upload (Uploaded File Card) */
@@ -217,10 +202,17 @@ tab_inference, tab_dashboard = st.tabs(
 # --- TAB 1: INFERENCE ---
 with tab_inference:
     st.header("Upload Audio file to Test Inference")
-    uploaded_file = st.file_uploader("Choose an audio file (.wav)", type=["wav"])
+    # Cập nhật danh sách type để người dùng có thể chọn nhiều loại file
+    uploaded_file = st.file_uploader(
+        "Choose an audio file", type=["wav", "mp3", "m4a", "flac", "ogg"]
+    )
 
     if uploaded_file is not None:
-        st.audio(uploaded_file, format="audio/wav")
+        # Lấy đuôi file để hiển thị đúng định dạng trên UI
+        file_ext = os.path.splitext(uploaded_file.name)[1].lower().replace(".", "")
+        # Streamlit hỗ trợ audio/mp3, audio/wav, audio/ogg...
+        audio_format = f"audio/{file_ext}" if file_ext in ["wav", "mp3", "ogg"] else "audio/wav"
+        st.audio(uploaded_file, format=audio_format)
 
         if st.button("🚀 Run Inference", type="primary"):
             with st.spinner("Model is processing..."):

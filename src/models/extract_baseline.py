@@ -10,8 +10,7 @@ from tqdm import tqdm
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Cấu hình đường dẫn (Hải chỉnh lại cho khớp với folder trên máy nhé)
-EXTRACTED_DIR = "data_train_70.6"
+EXTRACTED_DIR = "data/data_train_70.6"
 WAV_DIR = os.path.join(EXTRACTED_DIR, 'wavs')
 META_CSV = os.path.join(EXTRACTED_DIR, 'metadata.csv')
 OUTPUT_FILE = "models/baseline_distribution.json"

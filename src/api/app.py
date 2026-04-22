@@ -125,12 +125,19 @@ class PredictionResponse(BaseModel):
 
 @app.post("/predict", response_model=PredictionResponse)
 async def predict(file: UploadFile):
-    if not file.filename.endswith(".wav"):
-        raise HTTPException(status_code=400, detail="Only .wav files are supported")
+    # Mở rộng các định dạng cho phép
+    ALLOWED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+    ext = os.path.splitext(file.filename)[1].lower()
+
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
 
     request_id = str(uuid.uuid4())
-    # Lưu file tạm để inference trực tiếp
-    raw_path = f"raw_{request_id}_{file.filename}"
+    # Lưu file tạm đúng với đuôi file gốc để librosa nhận diện đúng format
+    raw_path = f"raw_{request_id}{ext}"
 
     with open(raw_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)

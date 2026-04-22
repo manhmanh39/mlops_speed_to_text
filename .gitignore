@@ -9,6 +9,7 @@ data/**
 /models/
 mlruns/
 person_name_500/
+data_train_70.6/
 outputs/
 *.wav
 *.mp3
