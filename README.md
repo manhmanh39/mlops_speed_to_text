@@ -1,60 +1,71 @@
-# 🎙️ MLOps Speed-to-Text with Wav2Vec 2.0
+# 🎙️ Vietnamese Name Recognition System (Speech-to-Text) - MLOps Pipeline
 
-This repository implements a production-ready MLOps pipeline for a Speech-to-Text (STT) system based on the **Wav2Vec 2.0** architecture. The project focuses on automating the lifecycle of an AI model—from code quality enforcement and automated testing to containerized deployment.
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Try%20Now!-brightgreen?style=for-the-badge&logo=streamlit)](https://raft-coeditor-stout.ngrok-free.dev/)
 
-## Team Member
-* Nguyễn Thị Mai Anh
-* Phạm Thị Ngọc Ánh
-* Nguyễn Thị Hương Giang
-* Nguyễn Khánh Huyền
-* Lê Lan Hương
-* Nguyễn Thanh Mơ
-## 🚀 Key Features
+This repository implements a production-ready, end-to-end MLOps pipeline for a Speech-to-Text (STT) system optimized specifically for recognizing Vietnamese personal names. 
 
-* **State-of-the-art Model:** Utilizes a fine-tuned Wav2Vec 2.0 model optimized for the Vietnamese language.
-* **Robust CI/CD Pipeline:** Fully automated workflow using GitHub Actions to enforce code quality (**Ruff, Flake8**) and run **Unit Tests** (36/36 passed) on every push.
-* **Full Containerization:** Standardized environment using **Docker** and **Docker Compose**, ensuring "it works on my machine" translates to "it works everywhere."
-* **Production API:** High-performance RESTful API built with **FastAPI**, featuring automatic Swagger UI documentation at `localhost:8000/docs`.
-* **Security Best Practices:** Sensitive information (Hugging Face Tokens, API Keys) is managed securely via environment variables (`.env`).
+## 🚀 How to Use (Quick Start)
 
-## 🛠 Prerequisites
+Depending on your goal, you can choose one of the following methods:
 
-* **Docker Desktop** (with WSL2 backend enabled).
-* **Docker Compose**.
-* **Hugging Face Account** (to generate a User Access Token for model weights).
+### 🌐 Option 1: Live Web UI (Zero Setup)
+The fastest way to experience our STT system is through our live deployed Streamlit frontend. No installation or downloading is required!
+👉 **[Access the Live STT Application Here](https://raft-coeditor-stout.ngrok-free.dev/)**
+*(Note: This URL is temporarily tunneled via ngrok for the final presentation).*
 
-## 📥 Quick Start
+---
 
-### 1. Clone the Repository
+### 🐳 Option 2: Run via Docker (For End Users)
+If you want to run the API service locally without setting up a Python environment or downloading datasets, you can pull our pre-built container from the **GitHub Container Registry (GHCR)**. This image already includes the trained model weights and all dependencies.
+
 ```bash
-git clone https://github.com/manhmanh39/mlops_speed_to_text.git
-cd mlops_speed_to_text
+# Pull and run the API service directly
+docker run -p 8000:8000 ghcr.io/manhmanh39/mlops_speed_to_text:latest
 ```
+*Access the API Swagger documentation at `http://localhost:8000/docs`.*
 
-### 2. Configuration
-Create a `.env` file in the root directory and add your credentials:
-```env
-HF_TOKEN=your_huggingface_token_here
-WANDB_API_KEY=your_wandb_key_here
-```
+---
 
-### 3. Deploy with Docker Compose
-To launch the STT API service, run:
-```bash
-docker compose up wav2vec2-api
-```
-*Note: During the first run, the system will automatically download the pre-trained model weights (~1.2GB) from the Hugging Face Hub.*
+### 💻 Option 3: Development & Training (For Developers)
+If you want to modify the code, view the datasets, or reproduce the training experiments:
 
-## 🧪 Quality Assurance & Testing
+1. **Clone the repo:**
+   ```bash
+   git clone [https://github.com/manhmanh39/mlops_speed_to_text.git](https://github.com/manhmanh39/mlops_speed_to_text.git)
+   cd mlops_speed_to_text
+   ```
 
-This project adheres to strict software engineering standards:
-* **Linting:** `Ruff` and `Flake8` are used to maintain clean, PEP8-compliant code.
-* **Unit Testing:** 36 comprehensive test cases covering audio preprocessing, text normalization, and inference logic.
-* **Automated Registry:** Upon passing all tests, the system automatically builds and pushes the Docker image to the **GitHub Container Registry (GHCR)**.
+2. **Pull Data & Model Weights (DVC):**
+   Large files (audio data and model checkpoints) are managed by DVC. To download them from our remote storage:
+   ```bash
+   pip install dvc[all]
+   dvc pull
+   ```
 
-## 📁 Project Structure
-* `app.py`: FastAPI application for model serving.
-* `train_wav2vec2.py`: Script for model fine-tuning and training logic.
-* `eval_wav2vec2.py`: Evaluation utilities and metrics.
-* `tests/`: Automated test suite for CI/CD validation.
-* `Dockerfile`: Linux-based container configuration for deployment.
+3. **Run with Docker Compose:**
+   ```bash
+   docker compose up wav2vec2-api
+   ```
+
+## 🛠️ Technology Stack & MLOps Pipeline
+
+1. **Data Management:** `DVC` (Data Version Control) for tracking 2,804 training audio samples.
+2. **Experiment Tracking:** `MLflow` for systematically logging hyperparameters and WER/CER metrics.
+3. **CI/CD:** `GitHub Actions` for automated linting (`Ruff`), testing (`Pytest` with 36/36 passing tests), and building Docker images to **GHCR**.
+4. **Orchestration:** `Kubernetes` manifests for scalable deployment and zero-downtime rolling updates.
+5. **Observability:** `Prometheus` & `Grafana` for real-time monitoring of Data Drift using the **Kolmogorov-Smirnov (K-S) test**.
+
+## 📊 Performance Summary
+* **Final Model:** Fine-tuned `wav2vec2-large-vi-vlsp2020` with Connectionist Temporal Classification (CTC).
+* **Accuracy:** 75.00% PASS rate on strict Vietnamese name recognition.
+* **Inference:** FastAPI-based REST service coupled with a Streamlit interactive frontend.
+
+## 👥 The MLOps Team (Class: DSEB 65B)
+* **Nguyen Thi Mai Anh:** System Architect & MLOps Lead.
+* **Pham Thi Ngoc Anh:** Model Serving & Frontend.
+* **Nguyen Thi Huong Giang:** Data Engineering (DVC).
+* **Le Lan Huong:** Machine Learning & MLflow Tracking.
+* **Nguyen Khanh Huyen:** DevOps & CI Quality Gates.
+* **Nguyen Thanh Mo:** Observability, CD & Drift Monitoring.
+
+*Supervisor: Dr. Nguyen Manh Toan | Hanoi, April 2026*
