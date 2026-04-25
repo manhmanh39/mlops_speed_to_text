@@ -41,6 +41,8 @@ RUN pip3 install --no-cache-dir -r requirements-vi.txt
 
 # 5. Copy code sau cùng để tối ưu build cache
 COPY src/ ./src/
+COPY tests/ ./tests/
+COPY pytest.ini .
 
 ENV PYTHONPATH=".:/app"
 
