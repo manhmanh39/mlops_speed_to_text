@@ -252,10 +252,11 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ALLOW_EMBEDDING=true        # Quan trọng nhất: Cho phép nhúng
+      - GF_AUTH_ANONYMOUS_ENABLED=true          # Cho phép xem đồ thị mà không cần đăng nhập
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
     networks:
       - wav2vec2-net
-    depends_on:
-      - prometheus
 
 networks:
   wav2vec2-net:

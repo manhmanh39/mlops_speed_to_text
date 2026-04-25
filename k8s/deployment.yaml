@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: asr-container
-        image: ghcr.io/manhmanh39/mlops_speed_to_text:latest
+        image: ghcr.io/manhmanh39/mlops_speed_to_text:sha-92393fe
         imagePullPolicy: IfNotPresent
         command: ["python"]
         args: ["app.py"]

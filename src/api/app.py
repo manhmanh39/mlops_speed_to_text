@@ -33,7 +33,11 @@ DRIFT_SCORE = Gauge(
 TRANSCRIPTION_LENGTH = Histogram(
     "asr_trans_len_words", "Transcription word count", buckets=[1, 3, 5, 10]
 )
-
+AUDIO_DURATION = Histogram(
+    "asr_audio_duration_seconds",
+    "Phân phối độ dài file âm thanh đầu vào",
+    buckets=[1, 3, 5, 10, 20]
+)
 # Global variables cho Drift Detection
 recent_durations = []
 WINDOW_SIZE = 20
@@ -148,6 +152,7 @@ async def predict(file: UploadFile):
             # Vẫn tính duration trên file raw để monitor data drift
             curr_duration = librosa.get_duration(path=raw_path)
             recent_durations.append(curr_duration)
+            AUDIO_DURATION.observe(curr_duration)
             if len(recent_durations) > WINDOW_SIZE:
                 recent_durations.pop(0)
 
@@ -185,6 +190,19 @@ async def predict(file: UploadFile):
         # Cleanup
         if os.path.exists(raw_path):
             os.remove(raw_path)
+
+
+# --- ROUTE TEST LỖI ĐỂ SHOW MONITORING ---
+@app.get("/trigger-4xx")
+async def trigger_4xx():
+    logger.warning(">>> Manual Trigger: 400 Bad Request <<<")
+    raise HTTPException(status_code=400, detail="Test error 400 for Monitoring")
+
+
+@app.get("/trigger-500")
+async def trigger_500():
+    logger.error(">>> Manual Trigger: 500 Internal Server Error <<<")
+    raise HTTPException(status_code=500, detail="Test error 500 for Monitoring")
 
 
 @app.get("/health")
